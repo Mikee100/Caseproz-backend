@@ -11,6 +11,7 @@ console.log('JWT_SECRET loaded:', process.env.JWT_SECRET ? 'YES' : 'NO');
 connectDB();
 
 const productRoutes = require('./routes/productRoutes');
+const sectionRoutes = require('./routes/sectionRoutes');
 const userRoutes = require('./routes/userRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
@@ -58,6 +59,7 @@ app.use((req, res, next) => {
 
 
 app.use('/api/products', productRoutes);
+app.use('/api/sections', sectionRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/upload', uploadRoutes);
