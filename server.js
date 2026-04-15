@@ -18,6 +18,8 @@ const analyticsRoutes = require('./routes/analyticsRoutes');
 const siteConfigRoutes = require('./routes/siteConfigRoutes');
 const discountRoutes = require('./routes/discountRoutes');
 const seoRoutes = require('./routes/seoRoutes');
+const brandRoutes = require('./routes/brandRoutes');
+const categoryRoutes = require('./routes/categoryRoutes');
 const path = require('path');
 
 const app = express();
@@ -28,7 +30,7 @@ app.set('trust proxy', true);
 const allowedOrigins = [
 
   'https://caseproz.vercel.app',
-  'http://localhost:5173'
+  'http://localhost:3000'
 ];
 app.use(
   cors({
@@ -63,6 +65,9 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/site-config', siteConfigRoutes);
 app.use('/api/discounts', discountRoutes);
 app.use('/', seoRoutes);
+
+app.use('/api/brands', brandRoutes);
+app.use('/api/categories', categoryRoutes);
 
 app.use('/uploads', express.static(path.join(__dirname, '/uploads')));
 
