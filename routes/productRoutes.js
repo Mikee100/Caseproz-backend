@@ -15,6 +15,81 @@ const invalidateProductsCache = () => {
   productsCache = { data: null, timestamp: 0 };
 };
 
+const normalizeVariants = (variants) => {
+  if (!Array.isArray(variants)) return [];
+
+  return variants
+    .map((variant) => {
+      if (!variant || typeof variant !== 'object') return null;
+
+      const label = String(variant.label || variant.color || '').trim();
+      const color = variant.color ? String(variant.color).trim() : '';
+      const style = variant.style ? String(variant.style).trim() : '';
+      const sku = String(variant.sku || '').trim();
+      const image = variant.image ? String(variant.image).trim() : '';
+      const price = Number(variant.price);
+      const stock = Number(variant.stock);
+
+      if (!label || !sku || !Number.isFinite(price) || !Number.isFinite(stock)) {
+        return null;
+      }
+
+      return {
+        label,
+        color,
+        style,
+        sku,
+        image,
+        price,
+        stock,
+      };
+    })
+    .filter(Boolean);
+};
+
+const validateVariants = (variants) => {
+  if (!Array.isArray(variants) || variants.length === 0) return null;
+
+  if (variants.some((v) => v.price < 0 || v.stock < 0)) {
+    return 'Variant price and stock must be non-negative numbers.';
+  }
+
+  const skuSet = new Set();
+  for (const variant of variants) {
+    const key = variant.sku.toLowerCase();
+    if (skuSet.has(key)) {
+      return 'Duplicate variant SKU values are not allowed.';
+    }
+    skuSet.add(key);
+  }
+
+  return null;
+};
+
+const applyVariantFallbacks = (productPayload) => {
+  const normalizedVariants = normalizeVariants(productPayload.variants);
+  const variantError = validateVariants(normalizedVariants);
+  if (variantError) {
+    const error = new Error(variantError);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const nextPayload = { ...productPayload, variants: normalizedVariants };
+
+  if (normalizedVariants.length > 0) {
+    const prices = normalizedVariants.map((v) => v.price);
+    const stock = normalizedVariants.reduce((sum, v) => sum + v.stock, 0);
+    nextPayload.price = Math.min(...prices);
+    nextPayload.stock = stock;
+    if (!nextPayload.sku) {
+      nextPayload.sku = normalizedVariants[0].sku;
+    }
+  }
+
+  return nextPayload;
+};
+
 // @desc    Fetch products (with optional search, filters, pagination, and sorting)
 // @route   GET /api/products
 // @access  Public
@@ -145,11 +220,16 @@ router.get('/', async (req, res) => {
       return;
     }
 
-    // Fallback: no pagination requested, return full list (sorted)
+    // Fallback: no pagination requested, return full list (sorted) in consistent object shape
     if (isCacheableRequest && productsCache.data) {
       const age = Date.now() - productsCache.timestamp;
       if (age < PRODUCTS_CACHE_TTL_MS) {
-        return res.json(productsCache.data);
+        return res.json({
+          products: productsCache.data,
+          page: 1,
+          pages: 1,
+          total: productsCache.data.length,
+        });
       }
     }
 
@@ -162,7 +242,12 @@ router.get('/', async (req, res) => {
       };
     }
 
-    res.json(products);
+    res.json({
+      products,
+      page: 1,
+      pages: 1,
+      total: products.length,
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -199,6 +284,7 @@ router.post('/', protect, admin, async (req, res) => {
       subCategory,
       images,
       stock,
+      lowStockThreshold,
       specs,
       isFeatured,
       onSale,
@@ -206,17 +292,16 @@ router.post('/', protect, admin, async (req, res) => {
       keyFeatures,
       sku,
       brand,
-      variantGroup,
-      variantLabel,
       categories,
       featureHeadline,
       featureSubtext,
       notes,
       metaTitle,
       metaDescription,
+      variants,
     } = req.body;
 
-    const product = new Product({
+    const payload = applyVariantFallbacks({
       name,
       slug,
       description,
@@ -226,6 +311,7 @@ router.post('/', protect, admin, async (req, res) => {
       subCategory,
       images,
       stock,
+      lowStockThreshold,
       specs,
       isFeatured,
       onSale,
@@ -233,21 +319,22 @@ router.post('/', protect, admin, async (req, res) => {
       keyFeatures,
       sku,
       brand,
-      variantGroup,
-      variantLabel,
       categories,
       featureHeadline,
       featureSubtext,
       notes,
       metaTitle,
       metaDescription,
+      variants,
     });
+
+    const product = new Product(payload);
 
     const createdProduct = await product.save();
     invalidateProductsCache();
     res.status(201).json(createdProduct);
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    res.status(error.statusCode || 400).json({ message: error.message });
   }
 });
 
@@ -266,6 +353,7 @@ router.put('/:id', protect, admin, async (req, res) => {
       subCategory,
       images,
       stock,
+      lowStockThreshold,
       specs,
       isFeatured,
       onSale,
@@ -273,14 +361,13 @@ router.put('/:id', protect, admin, async (req, res) => {
       keyFeatures,
       sku,
       brand,
-      variantGroup,
-      variantLabel,
       categories,
       featureHeadline,
       featureSubtext,
       notes,
       metaTitle,
       metaDescription,
+      variants,
     } = req.body;
     const product = await Product.findById(req.params.id);
 
@@ -288,12 +375,13 @@ router.put('/:id', protect, admin, async (req, res) => {
       product.name = name || product.name;
       product.slug = slug || product.slug;
       product.description = description || product.description;
-      product.price = price || product.price;
+      product.price = price ?? product.price;
       product.originalPrice = originalPrice || product.originalPrice;
       product.category = category || product.category;
       product.subCategory = subCategory || product.subCategory;
       product.images = images || product.images;
       product.stock = stock !== undefined ? stock : product.stock;
+      if (lowStockThreshold !== undefined) product.lowStockThreshold = lowStockThreshold;
       product.specs = specs || product.specs;
       product.isFeatured = isFeatured !== undefined ? isFeatured : product.isFeatured;
       product.onSale = onSale !== undefined ? onSale : product.onSale;
@@ -303,14 +391,27 @@ router.put('/:id', protect, admin, async (req, res) => {
       if (keyFeatures !== undefined) product.keyFeatures = keyFeatures;
       if (sku !== undefined) product.sku = sku;
       if (brand !== undefined) product.brand = brand;
-      if (variantGroup !== undefined) product.variantGroup = variantGroup;
-      if (variantLabel !== undefined) product.variantLabel = variantLabel;
       if (categories !== undefined) product.categories = categories;
       if (featureHeadline !== undefined) product.featureHeadline = featureHeadline;
       if (featureSubtext !== undefined) product.featureSubtext = featureSubtext;
       if (notes !== undefined) product.notes = notes;
       if (metaTitle !== undefined) product.metaTitle = metaTitle;
       if (metaDescription !== undefined) product.metaDescription = metaDescription;
+      if (variants !== undefined) {
+        const normalizedVariants = normalizeVariants(variants);
+        const variantError = validateVariants(normalizedVariants);
+        if (variantError) {
+          return res.status(400).json({ message: variantError });
+        }
+        product.variants = normalizedVariants;
+        if (normalizedVariants.length > 0) {
+          product.price = Math.min(...normalizedVariants.map((v) => v.price));
+          product.stock = normalizedVariants.reduce((sum, v) => sum + v.stock, 0);
+          if (!product.sku) {
+            product.sku = normalizedVariants[0].sku;
+          }
+        }
+      }
 
       const updatedProduct = await product.save();
       invalidateProductsCache();

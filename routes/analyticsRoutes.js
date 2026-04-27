@@ -23,6 +23,56 @@ router.get('/summary', protect, admin, async (req, res) => {
 
     const products = await Product.countDocuments({});
 
+    // Find products and variants at or below their low-stock threshold (use global if not set)
+    const SiteConfig = require('../models/SiteConfig');
+    const siteConfig = await SiteConfig.getSingleton();
+    const globalLowStock = typeof siteConfig.globalLowStockThreshold === 'number' ? siteConfig.globalLowStockThreshold : 5;
+    const productsAll = await Product.find({}).select('name stock lowStockThreshold images slug variants');
+    const lowStockProducts = [];
+    productsAll.forEach(product => {
+      const threshold = typeof product.lowStockThreshold === 'number' ? product.lowStockThreshold : globalLowStock;
+      // Main product stock
+      if (
+        typeof product.stock === 'number' &&
+        typeof threshold === 'number' &&
+        product.stock <= threshold
+      ) {
+        lowStockProducts.push({
+          _id: product._id,
+          name: product.name,
+          stock: product.stock,
+          lowStockThreshold: threshold,
+          images: product.images,
+          slug: product.slug,
+          isVariant: false
+        });
+      }
+      // Variants
+      if (Array.isArray(product.variants)) {
+        product.variants.forEach(variant => {
+          if (
+            typeof variant.stock === 'number' &&
+            typeof threshold === 'number' &&
+            variant.stock <= threshold
+          ) {
+            lowStockProducts.push({
+              _id: product._id,
+              name: product.name + ' - ' + (variant.label || variant.sku),
+              stock: variant.stock,
+              lowStockThreshold: threshold,
+              images: [variant.image || product.images?.[0]].filter(Boolean),
+              slug: product.slug,
+              isVariant: true,
+              variantSku: variant.sku,
+              variantLabel: variant.label,
+              variantColor: variant.color,
+              variantStyle: variant.style
+            });
+          }
+        });
+      }
+    });
+
     // Get recent 5 orders
     const recentOrders = await Order.find({}).sort({ createdAt: -1 }).limit(5).populate('user', 'name');
 
@@ -44,7 +94,8 @@ router.get('/summary', protect, admin, async (req, res) => {
       totalSales,
       products,
       recentOrders,
-      salesData
+      salesData,
+      lowStockProducts
     });
 
   } catch (error) {

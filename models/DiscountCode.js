@@ -17,6 +17,7 @@ const discountCodeSchema = new mongoose.Schema(
     expiresAt: { type: Date },
     maxUses: { type: Number },
     timesUsed: { type: Number, default: 0 },
+    products: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Product' }], // Array of product IDs this discount applies to
   },
   {
     timestamps: true,

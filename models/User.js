@@ -35,6 +35,10 @@ const userSchema = mongoose.Schema(
           required: true,
         },
         qty: { type: Number, required: true, min: 1 },
+        variantSku: { type: String },
+        variantLabel: { type: String },
+        variantColor: { type: String },
+        variantStyle: { type: String },
         // Optional denormalized fields for quicker reads / analytics
         priceAtAdd: { type: Number },
         nameAtAdd: { type: String },

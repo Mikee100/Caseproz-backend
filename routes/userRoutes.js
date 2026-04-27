@@ -339,15 +339,31 @@ router.get('/cart', protect, async (req, res) => {
         return null;
       }
 
+      const variant = item.variantSku
+        ? (product.variants || []).find(
+            (entry) =>
+              entry.sku &&
+              String(entry.sku).toLowerCase() === String(item.variantSku).toLowerCase()
+          )
+        : null;
+
+      const resolvedPrice = variant ? variant.price : product.price;
+      const resolvedImage = variant?.image || (product.images || [])[0];
+      const resolvedStock = variant ? variant.stock : product.stock;
+
       return {
         _id: product._id,
         name: product.name,
-        price: product.price,
+        price: resolvedPrice,
         originalPrice: product.originalPrice,
-        images: product.images || [],
+        images: resolvedImage ? [resolvedImage, ...(product.images || [])] : product.images || [],
         slug: product.slug,
-        stock: product.stock,
+        stock: resolvedStock,
         quantity: item.qty,
+        variantSku: item.variantSku || '',
+        variantLabel: item.variantLabel || variant?.label || '',
+        variantColor: item.variantColor || variant?.color || '',
+        variantStyle: item.variantStyle || variant?.style || '',
       };
     }).filter(Boolean);
 
@@ -379,7 +395,7 @@ router.put('/cart', protect, async (req, res) => {
     const sanitizedMap = new Map();
 
     for (const item of items) {
-      const { productId, quantity } = item || {};
+      const { productId, quantity, variantSku } = item || {};
 
       if (!productId || !Number.isFinite(quantity) || quantity <= 0) {
         continue;
@@ -391,17 +407,37 @@ router.put('/cart', protect, async (req, res) => {
         continue;
       }
 
-      const safeQty = Math.min(quantity, product.stock);
+      const selectedVariant = variantSku
+        ? (product.variants || []).find(
+            (entry) =>
+              entry.sku &&
+              String(entry.sku).toLowerCase() === String(variantSku).toLowerCase()
+          )
+        : null;
 
-      const existing = sanitizedMap.get(String(product._id));
-      const mergedQty = existing ? Math.min(existing.qty + safeQty, product.stock) : safeQty;
+      if (variantSku && !selectedVariant) {
+        continue;
+      }
 
-      sanitizedMap.set(String(product._id), {
+      const stockLimit = selectedVariant ? selectedVariant.stock : product.stock;
+      if (stockLimit <= 0) continue;
+
+      const safeQty = Math.min(quantity, stockLimit);
+      const mapKey = `${String(product._id)}::${selectedVariant?.sku || ''}`;
+
+      const existing = sanitizedMap.get(mapKey);
+      const mergedQty = existing ? Math.min(existing.qty + safeQty, stockLimit) : safeQty;
+
+      sanitizedMap.set(mapKey, {
         product: product._id,
         qty: mergedQty,
-        priceAtAdd: product.price,
+        variantSku: selectedVariant?.sku,
+        variantLabel: selectedVariant?.label,
+        variantColor: selectedVariant?.color,
+        variantStyle: selectedVariant?.style,
+        priceAtAdd: selectedVariant ? selectedVariant.price : product.price,
         nameAtAdd: product.name,
-        imageAtAdd: product.images && product.images[0],
+        imageAtAdd: selectedVariant?.image || (product.images && product.images[0]),
         slugAtAdd: product.slug,
       });
     }
@@ -418,9 +454,14 @@ router.put('/cart', protect, async (req, res) => {
       const existingMap = new Map();
 
       for (const item of user.cartItems) {
-        existingMap.set(String(item.product), {
+        const key = `${String(item.product)}::${item.variantSku || ''}`;
+        existingMap.set(key, {
           product: item.product,
           qty: item.qty,
+          variantSku: item.variantSku,
+          variantLabel: item.variantLabel,
+          variantColor: item.variantColor,
+          variantStyle: item.variantStyle,
           priceAtAdd: item.priceAtAdd,
           nameAtAdd: item.nameAtAdd,
           imageAtAdd: item.imageAtAdd,
@@ -429,10 +470,10 @@ router.put('/cart', protect, async (req, res) => {
       }
 
       for (const incoming of newItems) {
-        const key = String(incoming.product);
+        const key = `${String(incoming.product)}::${incoming.variantSku || ''}`;
         const existing = existingMap.get(key);
         if (existing) {
-          const mergedQty = Math.min(existing.qty + incoming.qty, incoming.qty);
+          const mergedQty = existing.qty + incoming.qty;
           existingMap.set(key, { ...incoming, qty: mergedQty });
         } else {
           existingMap.set(key, incoming);

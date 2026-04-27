@@ -23,6 +23,22 @@ const curatedCollectionSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const deliveryRouteItemSchema = new mongoose.Schema(
+  {
+    location: String,
+    price: Number,
+  },
+  { _id: false }
+);
+
+const deliveryRouteGroupSchema = new mongoose.Schema(
+  {
+    road: String,
+    items: [deliveryRouteItemSchema],
+  },
+  { _id: false }
+);
+
 const siteConfigSchema = new mongoose.Schema(
   {
     taxRate: { type: Number, default: 0.16 }, // 16% VAT by default
@@ -30,6 +46,8 @@ const siteConfigSchema = new mongoose.Schema(
     promoBarLink: { type: String },
     heroSlides: [heroSlideSchema],
     curatedCollections: [curatedCollectionSchema],
+    deliveryRouteGroups: [deliveryRouteGroupSchema],
+    globalLowStockThreshold: { type: Number, default: 5 },
   },
   {
     timestamps: true,

@@ -8,7 +8,7 @@ const SiteConfig = require('../models/SiteConfig');
 const { protect, admin } = require('../middleware/authMiddleware');
 const sendEmail = require('../utils/sendEmail');
 const { generateOrderConfirmationEmail } = require('../utils/emailTemplates');
-const { SHIPPING_ZONES } = require('../utils/shippingZones');
+// const { SHIPPING_ZONES } = require('../utils/shippingZones');
 
 const VALID_STATUSES = [
   'pending',
@@ -96,7 +96,7 @@ router.post('/', protect, async (req, res) => {
     shippingAddress,
     paymentMethod,
     discountCode: rawDiscountCode,
-    shippingZoneId,
+    // shippingZoneId, // No longer using static zone IDs
   } = req.body;
 
   if (!orderItems || orderItems.length === 0) {
@@ -115,7 +115,39 @@ router.post('/', protect, async (req, res) => {
       if (!product.isActive) {
         return res.status(400).json({ message: `"${product.name}" is no longer available.` });
       }
-      if (product.stock < item.qty) {
+      let trustedPrice = product.price;
+      let trustedImage = product.images && product.images[0] ? product.images[0] : '';
+      let variantSku;
+      let variantLabel;
+      let variantColor;
+      let variantStyle;
+
+      if (item.variantSku) {
+        const selectedVariant = (product.variants || []).find(
+          (variant) =>
+            variant.sku &&
+            String(variant.sku).toLowerCase() === String(item.variantSku).toLowerCase()
+        );
+
+        if (!selectedVariant) {
+          return res.status(400).json({
+            message: `Selected variant is no longer available for "${product.name}".`,
+          });
+        }
+
+        if (selectedVariant.stock < item.qty) {
+          return res.status(400).json({
+            message: `Not enough stock for "${product.name}" (${selectedVariant.label}). Available: ${selectedVariant.stock}, requested: ${item.qty}`,
+          });
+        }
+
+        trustedPrice = selectedVariant.price;
+        trustedImage = selectedVariant.image || trustedImage;
+        variantSku = selectedVariant.sku;
+        variantLabel = selectedVariant.label;
+        variantColor = selectedVariant.color;
+        variantStyle = selectedVariant.style;
+      } else if (product.stock < item.qty) {
         return res.status(400).json({
           message: `Not enough stock for "${product.name}". Available: ${product.stock}, requested: ${item.qty}`,
         });
@@ -124,31 +156,41 @@ router.post('/', protect, async (req, res) => {
       trustedItems.push({
         product: product._id,
         name: product.name,
-        image: product.images && product.images[0] ? product.images[0] : '',
+        image: trustedImage,
         qty: item.qty,
         // Use the real DB price — never trust client price
-        price: product.price,
+        price: trustedPrice,
+        variantSku,
+        variantLabel,
+        variantColor,
+        variantStyle,
       });
     }
 
     // ── 2. Calculate itemsPrice from trusted DB prices ──
     const itemsPrice = trustedItems.reduce((sum, item) => sum + item.price * item.qty, 0);
 
-    // ── 3. Resolve shipping price from the zone ID ──
-    const zone = SHIPPING_ZONES.find((z) => z.id === shippingZoneId);
-    const shippingPrice = zone ? zone.price : 500; // fallback to 500 if unknown zone
+    // ── 3. Resolve shipping price from SiteConfig ──
+    const siteConfig = await SiteConfig.getSingleton();
+    let shippingPrice = 500; // default fallback
 
-    // ── 4. Fetch tax rate from SiteConfig ──
-    let taxRate = 0.16; // default 16% VAT
-    try {
-      const siteConfig = await SiteConfig.getSingleton();
-      if (typeof siteConfig.taxRate === 'number') {
-        taxRate = siteConfig.taxRate;
+    if (shippingAddress && shippingAddress.region && shippingAddress.location) {
+      const group = (siteConfig.deliveryRouteGroups || []).find(
+        (g) => g.road && g.road.trim().toUpperCase() === shippingAddress.region.trim().toUpperCase()
+      );
+      if (group) {
+        const item = (group.items || []).find(
+          (i) => i.location && i.location.trim().toUpperCase() === shippingAddress.location.trim().toUpperCase()
+        );
+        if (item) {
+          shippingPrice = item.price;
+        }
       }
-    } catch (_) {
-      // ignore – use default
     }
-    const taxPrice = Math.round(itemsPrice * taxRate);
+
+    // ── 4. Tax removed per user request ──
+    const taxPrice = 0;
+    const taxRate = 0;
 
     // ── 5. Validate discount code (server-side) ──
     let discountAmount = 0;
@@ -170,7 +212,54 @@ router.post('/', protect, async (req, res) => {
 
     // ── 7. Decrement stock ──
     for (const item of trustedItems) {
-      await Product.findByIdAndUpdate(item.product, { $inc: { stock: -item.qty } });
+      const product = await Product.findById(item.product);
+      if (!product) continue;
+
+      let updatedProduct = product;
+      let variant = null;
+      if (item.variantSku) {
+        variant = (product.variants || []).find(
+          (entry) =>
+            entry.sku &&
+            String(entry.sku).toLowerCase() === String(item.variantSku).toLowerCase()
+        );
+        if (!variant || variant.stock < item.qty) {
+          return res.status(400).json({
+            message: `Not enough stock for "${item.name}" (${item.variantLabel || item.variantSku}).`,
+          });
+        }
+        variant.stock -= item.qty;
+        product.stock = Math.max(0, Number(product.stock || 0) - item.qty);
+        updatedProduct = await product.save();
+      } else {
+        updatedProduct = await Product.findByIdAndUpdate(item.product, { $inc: { stock: -item.qty } }, { new: true });
+      }
+
+      // ── Low-stock alert logic ──
+      if (updatedProduct && typeof updatedProduct.stock === 'number' && typeof updatedProduct.lowStockThreshold === 'number') {
+        if (updatedProduct.stock <= updatedProduct.lowStockThreshold) {
+          // Send low-stock alert email to admins
+          (async () => {
+            try {
+              const admins = await User.find({ isAdmin: true }).select('email name');
+              const adminEmails = admins.map((a) => a.email).filter(Boolean);
+              const envAdminEmail = process.env.ADMIN_ORDER_EMAIL;
+              const recipientSet = new Set();
+              const addRecipient = (email) => { if (email) recipientSet.add(email.toLowerCase()); };
+              addRecipient(envAdminEmail);
+              adminEmails.forEach(addRecipient);
+              const recipients = Array.from(recipientSet);
+              if (recipients.length > 0) {
+                const subject = `Low Stock Alert: ${updatedProduct.name}`;
+                const text = `Product "${updatedProduct.name}" is low on stock.\nCurrent stock: ${updatedProduct.stock}\nThreshold: ${updatedProduct.lowStockThreshold}`;
+                await sendEmail({ to: recipients, subject, text, html: `<p>${text.replace(/\n/g, '<br>')}</p>` });
+              }
+            } catch (err) {
+              console.error('Failed to send low-stock alert:', err);
+            }
+          })();
+        }
+      }
     }
 
     // ── 8. Create the order ──

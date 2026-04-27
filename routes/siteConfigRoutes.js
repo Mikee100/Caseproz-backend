@@ -23,12 +23,15 @@ router.put('/', protect, admin, async (req, res) => {
   try {
     const config = await SiteConfig.getSingleton();
 
+
     const {
       taxRate,
       promoBarText,
       promoBarLink,
       heroSlides,
       curatedCollections,
+      deliveryRouteGroups,
+      globalLowStockThreshold,
     } = req.body;
 
     if (typeof taxRate === 'number') {
@@ -49,6 +52,14 @@ router.put('/', protect, admin, async (req, res) => {
 
     if (Array.isArray(curatedCollections)) {
       config.curatedCollections = curatedCollections;
+    }
+
+    if (Array.isArray(deliveryRouteGroups)) {
+      config.deliveryRouteGroups = deliveryRouteGroups;
+    }
+
+    if (typeof globalLowStockThreshold === 'number') {
+      config.globalLowStockThreshold = globalLowStockThreshold;
     }
 
     const updated = await config.save();

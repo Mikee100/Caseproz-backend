@@ -1,5 +1,18 @@
 const mongoose = require('mongoose');
 
+const variantSchema = mongoose.Schema(
+  {
+    label: { type: String, required: true, trim: true },
+    color: { type: String, trim: true },
+    style: { type: String, trim: true },
+    image: { type: String, trim: true },
+    price: { type: Number, required: true, min: 0 },
+    stock: { type: Number, required: true, min: 0, default: 0 },
+    sku: { type: String, required: true, trim: true },
+  },
+  { _id: false }
+);
+
 const productSchema = mongoose.Schema(
   {
     name: { type: String, required: true },
@@ -11,6 +24,8 @@ const productSchema = mongoose.Schema(
     subCategory: { type: String },
     images: [{ type: String }],
     stock: { type: Number, default: 0 },
+    // Minimum stock before triggering low-stock alert
+    lowStockThreshold: { type: Number, default: 5 },
     isFeatured: { type: Boolean, default: false },
     onSale: { type: Boolean, default: false },
     // Whether the product is visible/available for purchase
@@ -19,9 +34,8 @@ const productSchema = mongoose.Schema(
     specs: [{ key: String, value: String }],
     sku: { type: String },
     brand: { type: String },
-    // Variant grouping (e.g. Liberty 5 White/Black)
-    variantGroup: { type: String },
-    variantLabel: { type: String },
+    // Product variants (e.g. color/style options for one product)
+    variants: [variantSchema],
     // Extra taxonomy used for product footer like "Valentine's Day Gifts"
     categories: [{ type: String }],
     featureHeadline: { type: String },

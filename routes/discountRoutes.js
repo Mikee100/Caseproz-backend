@@ -32,6 +32,7 @@ router.post('/', protect, admin, async (req, res) => {
       startsAt,
       expiresAt,
       maxUses,
+      products, // array of product IDs
     } = req.body;
 
     if (!code || typeof value !== 'number') {
@@ -56,6 +57,7 @@ router.post('/', protect, admin, async (req, res) => {
       startsAt,
       expiresAt,
       maxUses,
+      products: Array.isArray(products) ? products : [],
     });
 
     res.status(201).json(discount);
@@ -85,12 +87,12 @@ router.put('/:id', protect, admin, async (req, res) => {
       startsAt,
       expiresAt,
       maxUses,
+      products, // array of product IDs
     } = req.body;
 
     if (code !== undefined) {
       discount.code = String(code).trim().toUpperCase();
     }
-
     if (description !== undefined) discount.description = description;
     if (type !== undefined) discount.type = type;
     if (typeof value === 'number') discount.value = value;
@@ -100,6 +102,7 @@ router.put('/:id', protect, admin, async (req, res) => {
     if (startsAt !== undefined) discount.startsAt = startsAt;
     if (expiresAt !== undefined) discount.expiresAt = expiresAt;
     if (maxUses !== undefined) discount.maxUses = maxUses;
+    if (products !== undefined) discount.products = Array.isArray(products) ? products : [];
 
     const updated = await discount.save();
     res.json(updated);
@@ -130,7 +133,7 @@ router.delete('/:id', protect, admin, async (req, res) => {
 // @access  Public (no auth required)
 router.post('/apply', async (req, res) => {
   try {
-    const { code, itemsTotal } = req.body;
+    const { code, itemsTotal, cartProductIds } = req.body;
 
     if (!code || typeof itemsTotal !== 'number') {
       return res
@@ -147,6 +150,17 @@ router.post('/apply', async (req, res) => {
 
     if (!discount.isCurrentlyValid(itemsTotal)) {
       return res.status(400).json({ message: 'Discount code is not valid for this order' });
+    }
+
+    // If discount.products is set (not empty), require at least one cart product to match
+    if (Array.isArray(discount.products) && discount.products.length > 0) {
+      if (!Array.isArray(cartProductIds) || cartProductIds.length === 0) {
+        return res.status(400).json({ message: 'This discount only applies to specific products in your cart.' });
+      }
+      const eligible = cartProductIds.some(pid => discount.products.map(id => String(id)).includes(String(pid)));
+      if (!eligible) {
+        return res.status(400).json({ message: 'This discount does not apply to any products in your cart.' });
+      }
     }
 
     const discountAmount = discount.computeDiscount(itemsTotal);
