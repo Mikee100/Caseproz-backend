@@ -3,7 +3,45 @@ const router = express.Router();
 const User = require('../models/User');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
+const AnalyticsEvent = require('../models/AnalyticsEvent');
 const { protect, admin } = require('../middleware/authMiddleware');
+
+// @desc    Capture lightweight frontend analytics events
+// @route   POST /api/analytics/event
+// @access  Public
+router.post('/event', async (req, res) => {
+  try {
+    const {
+      eventName,
+      page = 'home',
+      section,
+      label,
+      sessionId,
+      metadata,
+      referrer,
+    } = req.body || {};
+
+    if (!eventName || typeof eventName !== 'string') {
+      return res.status(400).json({ message: 'eventName is required' });
+    }
+
+    await AnalyticsEvent.create({
+      eventName: eventName.trim(),
+      page,
+      section,
+      label,
+      sessionId,
+      metadata,
+      referrer,
+      userAgent: req.get('user-agent') || '',
+      ip: req.ip,
+    });
+
+    return res.status(204).send();
+  } catch (error) {
+    return res.status(500).json({ message: 'Failed to record analytics event' });
+  }
+});
 
 // @desc    Get dashboard analytics
 // @route   GET /api/analytics/summary
