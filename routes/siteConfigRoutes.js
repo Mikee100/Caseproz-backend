@@ -30,6 +30,7 @@ router.put('/', protect, admin, async (req, res) => {
       promoBarLink,
       heroSlides,
       curatedCollections,
+      homeShowcaseCategories,
       deliveryRouteGroups,
       globalLowStockThreshold,
     } = req.body;
@@ -52,6 +53,10 @@ router.put('/', protect, admin, async (req, res) => {
 
     if (Array.isArray(curatedCollections)) {
       config.curatedCollections = curatedCollections;
+    }
+
+    if (Array.isArray(homeShowcaseCategories)) {
+      config.homeShowcaseCategories = homeShowcaseCategories;
     }
 
     if (Array.isArray(deliveryRouteGroups)) {
