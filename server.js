@@ -49,10 +49,16 @@ app.use(
 );
 app.use(express.json());
 
-// Debug logging for auth headers
+// Optional debug logging for auth metadata only (never log raw tokens)
 app.use((req, res, next) => {
-  if (process.env.NODE_ENV === 'development') {
-    console.log('Authorization header:', req.headers.authorization);
+  if (process.env.NODE_ENV === 'development' && process.env.DEBUG_AUTH === 'true') {
+    const authHeader = req.headers.authorization || '';
+    const hasBearer = authHeader.startsWith('Bearer ');
+    console.log('Auth debug:', {
+      hasAuthorizationHeader: Boolean(authHeader),
+      hasBearerToken: hasBearer,
+      tokenLength: hasBearer ? authHeader.slice(7).length : 0,
+    });
   }
   next();
 });

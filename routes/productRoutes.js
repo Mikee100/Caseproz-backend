@@ -15,6 +15,33 @@ const invalidateProductsCache = () => {
   productsCache = { data: null, timestamp: 0 };
 };
 
+const toAbsoluteUploadUrl = (value, req) => {
+  if (typeof value !== 'string') return value;
+  if (!value.startsWith('/uploads/')) return value;
+  const host = req.get('host');
+  if (!host) return value;
+  return `${req.protocol}://${host}${value}`;
+};
+
+const serializeProductForClient = (product, req) => {
+  const plain = product && typeof product.toObject === 'function'
+    ? product.toObject()
+    : { ...product };
+
+  if (Array.isArray(plain.images)) {
+    plain.images = plain.images.map((img) => toAbsoluteUploadUrl(img, req));
+  }
+
+  if (Array.isArray(plain.variants)) {
+    plain.variants = plain.variants.map((variant) => ({
+      ...variant,
+      image: toAbsoluteUploadUrl(variant.image, req),
+    }));
+  }
+
+  return plain;
+};
+
 const normalizeVariants = (variants) => {
   if (!Array.isArray(variants)) return [];
 
@@ -211,8 +238,10 @@ router.get('/', async (req, res) => {
         .limit(pageSize)
         .skip(pageSize * (page - 1));
 
+      const serializedProducts = products.map((p) => serializeProductForClient(p, req));
+
       res.json({
-        products,
+        products: serializedProducts,
         page,
         pages: Math.ceil(count / pageSize),
         total: count,
@@ -224,11 +253,14 @@ router.get('/', async (req, res) => {
     if (isCacheableRequest && productsCache.data) {
       const age = Date.now() - productsCache.timestamp;
       if (age < PRODUCTS_CACHE_TTL_MS) {
+        const serializedCached = productsCache.data.map((p) =>
+          serializeProductForClient(p, req)
+        );
         return res.json({
-          products: productsCache.data,
+          products: serializedCached,
           page: 1,
           pages: 1,
-          total: productsCache.data.length,
+          total: serializedCached.length,
         });
       }
     }
@@ -243,7 +275,7 @@ router.get('/', async (req, res) => {
     }
 
     res.json({
-      products,
+      products: products.map((p) => serializeProductForClient(p, req)),
       page: 1,
       pages: 1,
       total: products.length,
@@ -260,7 +292,7 @@ router.get('/:slug', async (req, res) => {
   try {
     const product = await Product.findOne({ slug: req.params.slug });
     if (product) {
-      res.json(product);
+      res.json(serializeProductForClient(product, req));
     } else {
       res.status(404).json({ message: 'Product not found' });
     }
@@ -586,7 +618,7 @@ router.get('/id/:id', async (req, res) => {
   try {
     const product = await Product.findById(req.params.id);
     if (product) {
-      res.json(product);
+      res.json(serializeProductForClient(product, req));
     } else {
       res.status(404).json({ message: 'Product not found' });
     }

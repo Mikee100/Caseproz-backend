@@ -42,10 +42,11 @@ const deliveryRouteGroupSchema = new mongoose.Schema(
 const siteConfigSchema = new mongoose.Schema(
   {
     taxRate: { type: Number, default: 0.16 }, // 16% VAT by default
-    promoBarText: { type: String, default: 'Same day delivery for all orders placed before 1pm.' },
+    promoBarText: { type: String, default: '' },
     promoBarLink: { type: String },
     heroSlides: [heroSlideSchema],
     curatedCollections: [curatedCollectionSchema],
+    homeShowcaseCategories: [{ type: String }],
     deliveryRouteGroups: [deliveryRouteGroupSchema],
     globalLowStockThreshold: { type: Number, default: 5 },
   },
