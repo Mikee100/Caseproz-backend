@@ -31,6 +31,8 @@ app.set('trust proxy', true);
 const allowedOrigins = [
 
   'https://caseproz.vercel.app',
+  'https://caseproz.co.ke',
+  'https://www.caseproz.co.ke',
   'http://localhost:3000'
 ];
 app.use(
