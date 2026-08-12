@@ -4,15 +4,124 @@ const Product = require('../models/Product');
 const sendEmail = require('../utils/sendEmail');
 const { protect, admin } = require('../middleware/authMiddleware');
 
-// Simple in-memory cache for the full products list (no filters)
-let productsCache = {
-  data: null,
-  timestamp: 0,
-};
-const PRODUCTS_CACHE_TTL_MS = 60 * 1000; // 60 seconds
-
 const invalidateProductsCache = () => {
-  productsCache = { data: null, timestamp: 0 };
+  // No-op placeholder: keep call sites stable after removing list cache.
+};
+
+const LIST_SELECT_FIELDS =
+  '_id name slug price originalPrice category subCategory images stock onSale isFeatured isActive brand categories createdAt keyFeatures variants';
+const DEFAULT_PAGE_SIZE = 12;
+const MAX_PAGE_SIZE = 60;
+
+const parseBooleanQuery = (value) => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string') return undefined;
+
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'true' || normalized === '1') return true;
+  if (normalized === 'false' || normalized === '0') return false;
+
+  return undefined;
+};
+
+const normalizeSlug = (value = '') =>
+  String(value)
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+const buildCategorySlugFilter = (targetSlugRaw) => {
+  const targetSlug = normalizeSlug(targetSlugRaw);
+  if (!targetSlug) return null;
+
+  const spaceLabel = targetSlug.replace(/-/g, ' ');
+  const escapedSlug = targetSlug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escapedSpaceLabel = spaceLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  const defaultFilter = {
+    $or: [
+      { category: { $regex: `^${escapedSlug}$`, $options: 'i' } },
+      { subCategory: { $regex: `^${escapedSlug}$`, $options: 'i' } },
+      { category: { $regex: `^${escapedSpaceLabel}$`, $options: 'i' } },
+      { subCategory: { $regex: `^${escapedSpaceLabel}$`, $options: 'i' } },
+      { category: { $regex: escapedSlug, $options: 'i' } },
+      { subCategory: { $regex: escapedSlug, $options: 'i' } },
+    ],
+  };
+
+  if (targetSlug === 'smart-watches') {
+    return {
+      $or: [
+        { category: { $regex: '^wearables$', $options: 'i' } },
+        { subCategory: { $regex: 'watch', $options: 'i' } },
+      ],
+    };
+  }
+
+  if (targetSlug === 'cables') {
+    return {
+      $and: [
+        { category: { $regex: '^accessories$', $options: 'i' } },
+        { subCategory: { $regex: 'cables\\s*&\\s*adapters|cables-adapters', $options: 'i' } },
+      ],
+    };
+  }
+
+  if (targetSlug === 'cases') {
+    return {
+      $and: [
+        { category: { $regex: '^accessories$', $options: 'i' } },
+        { subCategory: { $regex: 'cases\\s*&\\s*covers|cases-covers', $options: 'i' } },
+      ],
+    };
+  }
+
+  if (targetSlug === 'chargers') {
+    return {
+      $and: [
+        { category: { $regex: '^accessories$', $options: 'i' } },
+        { subCategory: { $regex: 'power|power\\s*banks|power-banks', $options: 'i' } },
+      ],
+    };
+  }
+
+  if (targetSlug === 'screen-protectors') {
+    return {
+      $or: [
+        {
+          $and: [
+            { category: { $regex: '^accessories$', $options: 'i' } },
+            { subCategory: { $regex: 'cases\\s*&\\s*covers|cases-covers', $options: 'i' } },
+          ],
+        },
+        {
+          $and: [
+            { category: { $regex: '^phones\\s*&\\s*tablets$|^phones-tablets$', $options: 'i' } },
+            { subCategory: { $regex: 'phone\\s*accessories|phone-accessories', $options: 'i' } },
+          ],
+        },
+      ],
+    };
+  }
+
+  if (targetSlug === 'earphones') {
+    return {
+      $and: [
+        { category: { $regex: '^audio\\s*&\\s*headphones$|^audio-headphones$', $options: 'i' } },
+        {
+          $or: [
+            { subCategory: { $regex: 'earbuds\\s*&\\s*in\\s*ear|earbuds-in-ear', $options: 'i' } },
+            { subCategory: { $regex: 'over\\s*ear\\s*headphones|over-ear-headphones', $options: 'i' } },
+            { subCategory: { $regex: 'headphones', $options: 'i' } },
+            { subCategory: { $regex: 'earbuds', $options: 'i' } },
+          ],
+        },
+      ],
+    };
+  }
+
+  return defaultFilter;
 };
 
 const toAbsoluteUploadUrl = (value, req) => {
@@ -155,13 +264,22 @@ router.get('/', async (req, res) => {
 
     const category = req.query.category;
     const subCategory = req.query.subCategory;
+    const categorySlug = req.query.categorySlug;
     const brand = req.query.brand;
     const variantGroup = req.query.variantGroup;
+    const isFeatured = parseBooleanQuery(req.query.isFeatured);
+    const onSale = parseBooleanQuery(req.query.onSale);
+    const isActive = parseBooleanQuery(req.query.isActive);
     const minPrice = req.query.minPrice ? Number(req.query.minPrice) : undefined;
     const maxPrice = req.query.maxPrice ? Number(req.query.maxPrice) : undefined;
 
-    const page = req.query.page ? Number(req.query.page) || 1 : 0;
-    const pageSize = req.query.pageSize ? Number(req.query.pageSize) || 12 : 12;
+    const rawPage = Number(req.query.page);
+    const rawPageSize = Number(req.query.pageSize);
+    const page = Number.isFinite(rawPage) && rawPage > 0 ? Math.floor(rawPage) : 1;
+    const normalizedPageSize = Number.isFinite(rawPageSize) && rawPageSize > 0
+      ? Math.floor(rawPageSize)
+      : DEFAULT_PAGE_SIZE;
+    const pageSize = Math.min(normalizedPageSize, MAX_PAGE_SIZE);
 
     let sortOption = { createdAt: -1 };
     const sort = req.query.sort;
@@ -189,8 +307,29 @@ router.get('/', async (req, res) => {
       baseQuery = { ...baseQuery, subCategory };
     }
 
+    if (categorySlug) {
+      const slugFilter = buildCategorySlugFilter(categorySlug);
+      if (slugFilter) {
+        baseQuery = Object.keys(baseQuery).length
+          ? { $and: [baseQuery, slugFilter] }
+          : slugFilter;
+      }
+    }
+
     if (variantGroup) {
       baseQuery = { ...baseQuery, variantGroup };
+    }
+
+    if (isFeatured !== undefined) {
+      baseQuery = { ...baseQuery, isFeatured };
+    }
+
+    if (onSale !== undefined) {
+      baseQuery = { ...baseQuery, onSale };
+    }
+
+    if (isActive !== undefined) {
+      baseQuery = { ...baseQuery, isActive };
     }
 
     if (minPrice !== undefined || maxPrice !== undefined) {
@@ -219,66 +358,19 @@ router.get('/', async (req, res) => {
         : brandFilter;
     }
 
-    const hasFilters =
-      req.query.keyword ||
-      category ||
-      subCategory ||
-      brand ||
-      minPrice !== undefined ||
-      maxPrice !== undefined ||
-      sort;
-
-    const isCacheableRequest = !hasFilters && page === 0;
-
-    // If a page is provided, use paginated response shape
-    if (page > 0) {
-      const count = await Product.countDocuments(query);
-      const products = await Product.find(query)
-        .sort(sortOption)
-        .limit(pageSize)
-        .skip(pageSize * (page - 1));
-
-      const serializedProducts = products.map((p) => serializeProductForClient(p, req));
-
-      res.json({
-        products: serializedProducts,
-        page,
-        pages: Math.ceil(count / pageSize),
-        total: count,
-      });
-      return;
-    }
-
-    // Fallback: no pagination requested, return full list (sorted) in consistent object shape
-    if (isCacheableRequest && productsCache.data) {
-      const age = Date.now() - productsCache.timestamp;
-      if (age < PRODUCTS_CACHE_TTL_MS) {
-        const serializedCached = productsCache.data.map((p) =>
-          serializeProductForClient(p, req)
-        );
-        return res.json({
-          products: serializedCached,
-          page: 1,
-          pages: 1,
-          total: serializedCached.length,
-        });
-      }
-    }
-
-    const products = await Product.find(query).sort(sortOption);
-
-    if (isCacheableRequest) {
-      productsCache = {
-        data: products,
-        timestamp: Date.now(),
-      };
-    }
+    const count = await Product.countDocuments(query);
+    const products = await Product.find(query)
+      .select(LIST_SELECT_FIELDS)
+      .sort(sortOption)
+      .limit(pageSize)
+      .skip(pageSize * (page - 1))
+      .lean();
 
     res.json({
       products: products.map((p) => serializeProductForClient(p, req)),
-      page: 1,
-      pages: 1,
-      total: products.length,
+      page,
+      pages: Math.ceil(count / pageSize),
+      total: count,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

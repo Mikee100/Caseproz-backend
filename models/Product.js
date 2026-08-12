@@ -50,6 +50,10 @@ const productSchema = mongoose.Schema(
   }
 );
 
+productSchema.index({ isActive: 1, createdAt: -1 });
+productSchema.index({ isActive: 1, isFeatured: 1, createdAt: -1 });
+productSchema.index({ isActive: 1, onSale: 1, createdAt: -1 });
+
 const Product = mongoose.model('Product', productSchema);
 
 module.exports = Product;
