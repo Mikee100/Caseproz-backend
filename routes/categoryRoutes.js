@@ -86,7 +86,29 @@ router.delete('/:categoryId/subcategories/:subCategoryId', async (req, res) => {
   try {
     const category = await Category.findById(req.params.categoryId);
     if (!category) return res.status(404).json({ message: 'Category not found' });
-    category.subCategories.id(req.params.subCategoryId).remove();
+
+    const targetId = String(req.params.subCategoryId);
+    const directSubCategory = category.subCategories.id(targetId);
+
+    if (directSubCategory) {
+      category.subCategories.pull({ _id: targetId });
+    } else {
+      // Backward-compatible fallback: some legacy entries may use `id` instead of `_id`.
+      const beforeCount = category.subCategories.length;
+      category.subCategories = category.subCategories.filter((sub) => {
+        const subId = String(sub?._id || sub?.id || '');
+        return subId !== targetId;
+      });
+
+      // Idempotent delete: if not found, return success so UI can refresh cleanly.
+      if (category.subCategories.length === beforeCount) {
+        return res.status(200).json({
+          message: 'Subcategory already removed',
+          category,
+        });
+      }
+    }
+
     await category.save();
     res.json(category);
   } catch (err) {
