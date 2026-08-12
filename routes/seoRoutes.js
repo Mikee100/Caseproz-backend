@@ -1,6 +1,7 @@
 const express = require('express');
 const Product = require('../models/Product');
 const Category = require('../models/Category');
+const Brand = require('../models/Brand');
 
 const router = express.Router();
 
@@ -30,7 +31,7 @@ router.get('/robots.txt', (req, res) => {
   );
 });
 
-// XML sitemap for products, categories, and key pages
+// XML sitemap for products, categories, brands, and key pages
 router.get('/sitemap.xml', async (req, res) => {
   try {
     const baseUrl = getBaseUrl(req);
@@ -45,9 +46,10 @@ router.get('/sitemap.xml', async (req, res) => {
       '/contact',
     ];
 
-    const [products, categories] = await Promise.all([
+    const [products, categories, brands] = await Promise.all([
       Product.find({ isActive: true }).select('slug updatedAt createdAt'),
       Category.find({}).select('slug updatedAt createdAt'),
+      Brand.find({}).select('name slug updatedAt createdAt'),
     ]);
 
     const urls = [
@@ -62,6 +64,15 @@ router.get('/sitemap.xml', async (req, res) => {
         changefreq: 'weekly',
         priority: '0.8',
       })),
+      ...brands.map((b) => {
+        const brandSlug = (b.slug || b.name).toLowerCase().replace(/\s+/g, '-');
+        return {
+          loc: `${baseUrl}/brand/${brandSlug}`,
+          lastmod: (b.updatedAt || b.createdAt || new Date()).toISOString(),
+          changefreq: 'weekly',
+          priority: '0.8',
+        };
+      }),
       ...products.map((p) => ({
         loc: `${baseUrl}/product/${p.slug}`,
         lastmod: (p.updatedAt || p.createdAt || new Date()).toISOString(),
