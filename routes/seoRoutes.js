@@ -5,8 +5,15 @@ const Brand = require('../models/Brand');
 
 const router = express.Router();
 
+const normalizeSlug = (value = '') =>
+  String(value)
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
 const getBaseUrl = (req) => {
-  if (process.env.FRONTEND_URL) return process.env.FRONTEND_URL;
+  if (process.env.FRONTEND_URL) return process.env.FRONTEND_URL.replace(/\/$/, '');
   return 'https://www.caseproz.co.ke';
 };
 
@@ -23,8 +30,11 @@ router.get('/robots.txt', (req, res) => {
       'Disallow: /login',
       'Disallow: /register',
       'Disallow: /checkout',
+      'Disallow: /cart',
       'Disallow: /profile',
       'Disallow: /orders',
+      'Disallow: /favourites',
+      'Disallow: /search',
       '',
       `Sitemap: ${baseUrl}/sitemap.xml`,
     ].join('\n')
@@ -38,7 +48,6 @@ router.get('/sitemap.xml', async (req, res) => {
 
     const staticUrls = [
       '/',
-      '/search',
       '/delivery',
       '/returns',
       '/faq',
@@ -48,8 +57,8 @@ router.get('/sitemap.xml', async (req, res) => {
 
     const [products, categories, brands] = await Promise.all([
       Product.find({ isActive: true }).select('slug updatedAt createdAt'),
-      Category.find({}).select('slug updatedAt createdAt'),
-      Brand.find({}).select('name slug updatedAt createdAt'),
+      Category.find({}).select('name updatedAt createdAt'),
+      Brand.find({}).select('name updatedAt createdAt'),
     ]);
 
     const urls = [
@@ -59,20 +68,17 @@ router.get('/sitemap.xml', async (req, res) => {
         priority: path === '/' ? '1.0' : '0.6',
       })),
       ...categories.map((c) => ({
-        loc: `${baseUrl}/category/${c.slug}`,
+        loc: `${baseUrl}/category/${normalizeSlug(c.name)}`,
         lastmod: (c.updatedAt || c.createdAt || new Date()).toISOString(),
         changefreq: 'weekly',
         priority: '0.8',
       })),
-      ...brands.map((b) => {
-        const brandSlug = (b.slug || b.name).toLowerCase().replace(/\s+/g, '-');
-        return {
-          loc: `${baseUrl}/brand/${brandSlug}`,
-          lastmod: (b.updatedAt || b.createdAt || new Date()).toISOString(),
-          changefreq: 'weekly',
-          priority: '0.8',
-        };
-      }),
+      ...brands.map((b) => ({
+        loc: `${baseUrl}/brand/${normalizeSlug(b.name)}`,
+        lastmod: (b.updatedAt || b.createdAt || new Date()).toISOString(),
+        changefreq: 'weekly',
+        priority: '0.8',
+      })),
       ...products.map((p) => ({
         loc: `${baseUrl}/product/${p.slug}`,
         lastmod: (p.updatedAt || p.createdAt || new Date()).toISOString(),
@@ -108,4 +114,3 @@ router.get('/sitemap.xml', async (req, res) => {
 });
 
 module.exports = router;
-
