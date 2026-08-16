@@ -24,6 +24,23 @@ const parseBooleanQuery = (value) => {
   return undefined;
 };
 
+const escapeRegex = (value = '') => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const buildKeywordRegex = (value = '') => {
+  const normalized = String(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+
+  if (!normalized) return null;
+
+  const tokens = normalized.split(/\s+/).filter(Boolean).map(escapeRegex);
+  if (tokens.length === 0) return null;
+
+  const separatorPattern = '[-\\s_./]*';
+  return new RegExp(tokens.join(separatorPattern), 'i');
+};
+
 const normalizeSlug = (value = '') =>
   String(value)
     .toLowerCase()
@@ -231,31 +248,29 @@ const applyVariantFallbacks = (productPayload) => {
 // @access  Public
 router.get('/', async (req, res) => {
   try {
-    const keywordFilter = req.query.keyword
+    const keywordRegex = buildKeywordRegex(req.query.keyword);
+
+    const keywordFilter = keywordRegex
       ? {
           $or: [
             {
               name: {
-                $regex: req.query.keyword,
-                $options: 'i',
+                $regex: keywordRegex,
               },
             },
             {
               description: {
-                $regex: req.query.keyword,
-                $options: 'i',
+                $regex: keywordRegex,
               },
             },
             {
               category: {
-                $regex: req.query.keyword,
-                $options: 'i',
+                $regex: keywordRegex,
               },
             },
             {
               subCategory: {
-                $regex: req.query.keyword,
-                $options: 'i',
+                $regex: keywordRegex,
               },
             },
           ],
