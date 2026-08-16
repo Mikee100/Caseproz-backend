@@ -27,6 +27,7 @@ const productSchema = mongoose.Schema(
     // Minimum stock before triggering low-stock alert
     lowStockThreshold: { type: Number, default: 5 },
     isFeatured: { type: Boolean, default: false },
+    heroOrder: { type: Number, default: 100 },
     onSale: { type: Boolean, default: false },
     // Whether the product is visible/available for purchase
     isActive: { type: Boolean, default: true },
@@ -52,6 +53,7 @@ const productSchema = mongoose.Schema(
 
 productSchema.index({ isActive: 1, createdAt: -1 });
 productSchema.index({ isActive: 1, isFeatured: 1, createdAt: -1 });
+productSchema.index({ isActive: 1, isFeatured: 1, heroOrder: 1, createdAt: -1 });
 productSchema.index({ isActive: 1, onSale: 1, createdAt: -1 });
 
 const Product = mongoose.model('Product', productSchema);
