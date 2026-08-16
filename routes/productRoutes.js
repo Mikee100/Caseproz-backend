@@ -9,7 +9,7 @@ const invalidateProductsCache = () => {
 };
 
 const LIST_SELECT_FIELDS =
-  '_id name slug price originalPrice category subCategory images stock onSale isFeatured isActive brand categories createdAt keyFeatures variants';
+  '_id name slug price originalPrice category subCategory images stock onSale isFeatured heroOrder isActive brand categories createdAt keyFeatures variants';
 const DEFAULT_PAGE_SIZE = 12;
 const MAX_PAGE_SIZE = 60;
 
@@ -293,6 +293,8 @@ router.get('/', async (req, res) => {
       sortOption = { name: -1 };
     } else if (sort === 'newest') {
       sortOption = { createdAt: -1 };
+    } else if (sort === 'hero') {
+      sortOption = { heroOrder: 1, createdAt: -1 };
     }
 
     let baseQuery = {
@@ -411,6 +413,7 @@ router.post('/', protect, admin, async (req, res) => {
       lowStockThreshold,
       specs,
       isFeatured,
+      heroOrder,
       onSale,
       isActive,
       keyFeatures,
@@ -438,6 +441,7 @@ router.post('/', protect, admin, async (req, res) => {
       lowStockThreshold,
       specs,
       isFeatured,
+      heroOrder,
       onSale,
       isActive,
       keyFeatures,
@@ -480,6 +484,7 @@ router.put('/:id', protect, admin, async (req, res) => {
       lowStockThreshold,
       specs,
       isFeatured,
+      heroOrder,
       onSale,
       isActive,
       keyFeatures,
@@ -508,6 +513,7 @@ router.put('/:id', protect, admin, async (req, res) => {
       if (lowStockThreshold !== undefined) product.lowStockThreshold = lowStockThreshold;
       product.specs = specs || product.specs;
       product.isFeatured = isFeatured !== undefined ? isFeatured : product.isFeatured;
+      if (heroOrder !== undefined) product.heroOrder = heroOrder;
       product.onSale = onSale !== undefined ? onSale : product.onSale;
       if (typeof isActive === 'boolean') {
         product.isActive = isActive;
