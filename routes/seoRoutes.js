@@ -34,7 +34,6 @@ router.get('/robots.txt', (req, res) => {
       'Disallow: /profile',
       'Disallow: /orders',
       'Disallow: /favourites',
-      'Disallow: /search',
       '',
       `Sitemap: ${baseUrl}/sitemap.xml`,
     ].join('\n')
@@ -48,6 +47,7 @@ router.get('/sitemap.xml', async (req, res) => {
 
     const staticUrls = [
       '/',
+      '/search',
       '/delivery',
       '/returns',
       '/faq',
@@ -64,8 +64,8 @@ router.get('/sitemap.xml', async (req, res) => {
     const urls = [
       ...staticUrls.map((path) => ({
         loc: `${baseUrl}${path}`,
-        changefreq: path === '/' ? 'daily' : 'monthly',
-        priority: path === '/' ? '1.0' : '0.6',
+        changefreq: path === '/' || path === '/search' ? 'daily' : 'monthly',
+        priority: path === '/' ? '1.0' : path === '/search' ? '0.8' : '0.6',
       })),
       ...categories.map((c) => ({
         loc: `${baseUrl}/category/${normalizeSlug(c.name)}`,
