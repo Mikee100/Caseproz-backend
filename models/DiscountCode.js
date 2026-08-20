@@ -10,7 +10,7 @@ const discountCodeSchema = new mongoose.Schema(
       default: 'percent',
     },
     value: { type: Number, required: true }, // percent (e.g. 10) or amount in KSh
-    minOrderTotal: { type: Number, default: 0 },
+    minOrderTotal: { type: Number },
     maxDiscount: { type: Number }, // optional cap
     active: { type: Boolean, default: true },
     startsAt: { type: Date },
@@ -63,7 +63,7 @@ discountCodeSchema.methods.getInvalidReason = function (orderTotal) {
 
   if (typeof this.minOrderTotal === 'number') {
     if (orderTotal < this.minOrderTotal) {
-      return `This code requires a minimum cart subtotal of KSh ${Number(this.minOrderTotal || 0).toLocaleString()}.`;
+      return `This code requires a minimum cart subtotal of KSh ${Number(this.minOrderTotal).toLocaleString()}.`;
     }
   }
 

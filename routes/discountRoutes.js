@@ -5,13 +5,40 @@ const { protect, admin } = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
+const normalizeOptionalPositiveNumber = (value) => {
+  if (value === '' || value === null || value === undefined) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+};
+
+const serializeDiscountForClient = (discountDoc) => {
+  const plain = discountDoc && typeof discountDoc.toObject === 'function'
+    ? discountDoc.toObject()
+    : { ...discountDoc };
+
+  plain.minOrderTotal =
+    typeof plain.minOrderTotal === 'number' && plain.minOrderTotal > 0
+      ? plain.minOrderTotal
+      : null;
+  plain.maxDiscount =
+    typeof plain.maxDiscount === 'number' && plain.maxDiscount > 0
+      ? plain.maxDiscount
+      : null;
+  plain.maxUses =
+    typeof plain.maxUses === 'number' && plain.maxUses > 0
+      ? plain.maxUses
+      : null;
+
+  return plain;
+};
+
 // @desc    List all discount codes (admin)
 // @route   GET /api/discounts
 // @access  Private/Admin
 router.get('/', protect, admin, async (req, res) => {
   try {
     const codes = await DiscountCode.find({}).sort({ createdAt: -1 });
-    res.json(codes);
+    res.json(codes.map((code) => serializeDiscountForClient(code)));
   } catch (error) {
     res.status(500).json({ message: error.message || 'Failed to load discount codes' });
   }
@@ -47,21 +74,25 @@ router.post('/', protect, admin, async (req, res) => {
       return res.status(400).json({ message: 'A discount with that code already exists' });
     }
 
+    const normalizedMinOrderTotal = normalizeOptionalPositiveNumber(minOrderTotal);
+    const normalizedMaxDiscount = normalizeOptionalPositiveNumber(maxDiscount);
+    const normalizedMaxUses = normalizeOptionalPositiveNumber(maxUses);
+
     const discount = await DiscountCode.create({
       code: normalisedCode,
       description,
       type: type || 'percent',
       value,
-      minOrderTotal,
-      maxDiscount,
+      ...(normalizedMinOrderTotal !== undefined ? { minOrderTotal: normalizedMinOrderTotal } : {}),
+      ...(normalizedMaxDiscount !== undefined ? { maxDiscount: normalizedMaxDiscount } : {}),
       active,
       startsAt,
       expiresAt,
-      maxUses,
+      ...(normalizedMaxUses !== undefined ? { maxUses: normalizedMaxUses } : {}),
       products: Array.isArray(products) ? products : [],
     });
 
-    res.status(201).json(discount);
+    res.status(201).json(serializeDiscountForClient(discount));
   } catch (error) {
     res.status(400).json({ message: error.message || 'Failed to create discount code' });
   }
@@ -97,16 +128,22 @@ router.put('/:id', protect, admin, async (req, res) => {
     if (description !== undefined) discount.description = description;
     if (type !== undefined) discount.type = type;
     if (typeof value === 'number') discount.value = value;
-    if (minOrderTotal !== undefined) discount.minOrderTotal = minOrderTotal;
-    if (maxDiscount !== undefined) discount.maxDiscount = maxDiscount;
+    if (minOrderTotal !== undefined) {
+      discount.minOrderTotal = normalizeOptionalPositiveNumber(minOrderTotal);
+    }
+    if (maxDiscount !== undefined) {
+      discount.maxDiscount = normalizeOptionalPositiveNumber(maxDiscount);
+    }
     if (typeof active === 'boolean') discount.active = active;
     if (startsAt !== undefined) discount.startsAt = startsAt;
     if (expiresAt !== undefined) discount.expiresAt = expiresAt;
-    if (maxUses !== undefined) discount.maxUses = maxUses;
+    if (maxUses !== undefined) {
+      discount.maxUses = normalizeOptionalPositiveNumber(maxUses);
+    }
     if (products !== undefined) discount.products = Array.isArray(products) ? products : [];
 
     const updated = await discount.save();
-    res.json(updated);
+    res.json(serializeDiscountForClient(updated));
   } catch (error) {
     res.status(400).json({ message: error.message || 'Failed to update discount code' });
   }
@@ -224,8 +261,14 @@ router.post('/apply', async (req, res) => {
       type: discount.type,
       value: discount.value,
       discountAmount,
-      minOrderTotal: discount.minOrderTotal,
-      maxDiscount: discount.maxDiscount,
+      minOrderTotal:
+        typeof discount.minOrderTotal === 'number' && discount.minOrderTotal > 0
+          ? discount.minOrderTotal
+          : null,
+      maxDiscount:
+        typeof discount.maxDiscount === 'number' && discount.maxDiscount > 0
+          ? discount.maxDiscount
+          : null,
       message: `Discount of KSh ${discountAmount.toLocaleString()} applied.`,
     });
   } catch (error) {
