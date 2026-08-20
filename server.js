@@ -1,6 +1,7 @@
 const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
+const compression = require('compression');
 const connectDB = require('./config/db');
 
 
@@ -50,6 +51,51 @@ app.use(
   })
 );
 app.use(express.json());
+app.use(compression());
+
+const PUBLIC_API_CACHE_TTL = Number(process.env.PUBLIC_API_CACHE_TTL || 60);
+const publicCacheTargets = ['/api/products', '/api/brands', '/api/site-config'];
+const ENABLE_REQUEST_TIMING = process.env.ENABLE_REQUEST_TIMING === 'true';
+
+app.use((req, res, next) => {
+  if (req.method !== 'GET') return next();
+
+  const hasAuthSignal = Boolean(req.headers.authorization) || Boolean(req.headers.cookie);
+  if (hasAuthSignal) {
+    res.set('Cache-Control', 'private, no-store');
+    return next();
+  }
+
+  const isTarget = publicCacheTargets.some((target) => req.path === target || req.path.startsWith(`${target}/`));
+  if (isTarget) {
+    const maxAge = Number.isFinite(PUBLIC_API_CACHE_TTL) && PUBLIC_API_CACHE_TTL > 0
+      ? Math.floor(PUBLIC_API_CACHE_TTL)
+      : 60;
+    res.set('Cache-Control', `public, max-age=${maxAge}, s-maxage=${maxAge}, stale-while-revalidate=${maxAge * 2}`);
+  }
+
+  next();
+});
+
+// Optional lightweight latency logging to compare endpoint performance over time.
+app.use((req, res, next) => {
+  if (!ENABLE_REQUEST_TIMING) return next();
+  if (!req.path.startsWith('/api/')) return next();
+
+  const startedAt = process.hrtime.bigint();
+
+  res.on('finish', () => {
+    const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+    const responseBytes = Number(res.getHeader('content-length') || 0);
+    const cacheControl = String(res.getHeader('cache-control') || 'none');
+
+    console.log(
+      `[perf] ${req.method} ${req.originalUrl} ${res.statusCode} ${durationMs.toFixed(1)}ms ${responseBytes}B cache=${cacheControl}`
+    );
+  });
+
+  next();
+});
 
 // Optional debug logging for auth metadata only (never log raw tokens)
 app.use((req, res, next) => {
