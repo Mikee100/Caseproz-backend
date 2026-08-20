@@ -173,8 +173,13 @@ router.post('/', protect, async (req, res) => {
     // ── 3. Resolve shipping price from SiteConfig ──
     const siteConfig = await SiteConfig.getSingleton();
     let shippingPrice = 500; // default fallback
+    const isPickup = Boolean(shippingAddress && shippingAddress.isPickup);
 
-    if (shippingAddress && shippingAddress.region && shippingAddress.location) {
+    if (isPickup) {
+      shippingPrice = 0;
+    }
+
+    if (!isPickup && shippingAddress && shippingAddress.region && shippingAddress.location) {
       const group = (siteConfig.deliveryRouteGroups || []).find(
         (g) => g.road && g.road.trim().toUpperCase() === shippingAddress.region.trim().toUpperCase()
       );
@@ -199,11 +204,35 @@ router.post('/', protect, async (req, res) => {
       const normalisedCode = String(rawDiscountCode).trim().toUpperCase();
       const discount = await DiscountCode.findOne({ code: normalisedCode });
       if (discount && discount.isCurrentlyValid(itemsPrice)) {
-        discountAmount = discount.computeDiscount(itemsPrice);
-        discountCodeSaved = normalisedCode;
-        // Increment usage counter
-        discount.timesUsed = (discount.timesUsed || 0) + 1;
-        await discount.save();
+        let discountBaseTotal = itemsPrice;
+
+        // If this code is scoped to specific products, only discount eligible lines.
+        if (Array.isArray(discount.products) && discount.products.length > 0) {
+          const eligibleSet = new Set(discount.products.map((id) => String(id)));
+          let eligibleSubtotal = 0;
+
+          for (const item of trustedItems) {
+            if (!eligibleSet.has(String(item.product))) continue;
+            eligibleSubtotal += Number(item.price || 0) * Number(item.qty || 0);
+          }
+
+          if (eligibleSubtotal <= 0) {
+            discountBaseTotal = 0;
+          } else {
+            discountBaseTotal = eligibleSubtotal;
+          }
+        }
+
+        if (discountBaseTotal > 0) {
+          discountAmount = discount.computeDiscount(itemsPrice, discountBaseTotal);
+        }
+
+        if (discountAmount > 0) {
+          discountCodeSaved = normalisedCode;
+          // Increment usage counter only when discount actually applies
+          discount.timesUsed = (discount.timesUsed || 0) + 1;
+          await discount.save();
+        }
       }
     }
 

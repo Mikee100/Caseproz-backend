@@ -42,14 +42,46 @@ discountCodeSchema.methods.isCurrentlyValid = function (orderTotal) {
   return true;
 };
 
-discountCodeSchema.methods.computeDiscount = function (orderTotal) {
+discountCodeSchema.methods.getInvalidReason = function (orderTotal) {
+  if (!this.active) {
+    return 'This discount code is inactive.';
+  }
+
+  const now = new Date();
+  if (this.startsAt && now < this.startsAt) {
+    return `This discount starts on ${new Date(this.startsAt).toLocaleDateString()}.`;
+  }
+  if (this.expiresAt && now > this.expiresAt) {
+    return 'This discount code has expired.';
+  }
+
+  if (typeof this.maxUses === 'number' && this.maxUses >= 0) {
+    if (this.timesUsed >= this.maxUses) {
+      return 'This discount code has reached its maximum number of uses.';
+    }
+  }
+
+  if (typeof this.minOrderTotal === 'number') {
+    if (orderTotal < this.minOrderTotal) {
+      return `This code requires a minimum cart subtotal of KSh ${Number(this.minOrderTotal || 0).toLocaleString()}.`;
+    }
+  }
+
+  return '';
+};
+
+discountCodeSchema.methods.computeDiscount = function (orderTotal, discountBaseTotal = orderTotal) {
   if (!this.isCurrentlyValid(orderTotal)) {
     return 0;
   }
 
+  const baseTotal = Number.isFinite(discountBaseTotal)
+    ? Math.max(0, Number(discountBaseTotal))
+    : Math.max(0, Number(orderTotal || 0));
+
   let discount = 0;
   if (this.type === 'percent') {
-    discount = (orderTotal * this.value) / 100;
+    discount = (baseTotal * this.value) / 100;
   } else if (this.type === 'amount') {
     discount = this.value;
   }
@@ -58,7 +90,8 @@ discountCodeSchema.methods.computeDiscount = function (orderTotal) {
     discount = Math.min(discount, this.maxDiscount);
   }
 
-  // Discount should never exceed order total
+  // Discount should never exceed the discount base nor the full order total
+  discount = Math.min(discount, baseTotal);
   discount = Math.min(discount, orderTotal);
 
   return Math.max(0, Math.round(discount));
