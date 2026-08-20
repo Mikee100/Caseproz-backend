@@ -1,5 +1,6 @@
 const express = require('express');
 const DiscountCode = require('../models/DiscountCode');
+const Product = require('../models/Product');
 const { protect, admin } = require('../middleware/authMiddleware');
 
 const router = express.Router();
@@ -133,7 +134,7 @@ router.delete('/:id', protect, admin, async (req, res) => {
 // @access  Public (no auth required)
 router.post('/apply', async (req, res) => {
   try {
-    const { code, itemsTotal, cartProductIds } = req.body;
+    const { code, itemsTotal, cartProductIds, cartItems } = req.body;
 
     if (!code || typeof itemsTotal !== 'number') {
       return res
@@ -149,7 +150,56 @@ router.post('/apply', async (req, res) => {
     }
 
     if (!discount.isCurrentlyValid(itemsTotal)) {
-      return res.status(400).json({ message: 'Discount code is not valid for this order' });
+      return res.status(400).json({ message: discount.getInvalidReason(itemsTotal) || 'Discount code is not valid for this order' });
+    }
+
+    let discountBaseTotal = itemsTotal;
+
+    // When cartItems are provided, compute authoritative totals from DB prices.
+    if (Array.isArray(cartItems) && cartItems.length > 0) {
+      const normalizedItems = cartItems
+        .map((item) => ({
+          product: item?.product || item?._id,
+          qty: Number(item?.qty || 0),
+        }))
+        .filter((item) => item.product && Number.isFinite(item.qty) && item.qty > 0);
+
+      if (normalizedItems.length > 0) {
+        const productIds = [...new Set(normalizedItems.map((item) => String(item.product)))];
+        const dbProducts = await Product.find({ _id: { $in: productIds } }).select('_id price');
+        const priceById = new Map(dbProducts.map((p) => [String(p._id), Number(p.price || 0)]));
+
+        let computedItemsTotal = 0;
+        for (const item of normalizedItems) {
+          const unitPrice = priceById.get(String(item.product));
+          if (Number.isFinite(unitPrice)) {
+            computedItemsTotal += unitPrice * item.qty;
+          }
+        }
+
+        if (computedItemsTotal > 0) {
+          if (!discount.isCurrentlyValid(computedItemsTotal)) {
+            return res.status(400).json({ message: discount.getInvalidReason(computedItemsTotal) || 'Discount code is not valid for this order' });
+          }
+        }
+
+        if (Array.isArray(discount.products) && discount.products.length > 0) {
+          const eligibleSet = new Set(discount.products.map((id) => String(id)));
+          let eligibleSubtotal = 0;
+
+          for (const item of normalizedItems) {
+            if (!eligibleSet.has(String(item.product))) continue;
+            const unitPrice = priceById.get(String(item.product));
+            if (Number.isFinite(unitPrice)) {
+              eligibleSubtotal += unitPrice * item.qty;
+            }
+          }
+
+          discountBaseTotal = eligibleSubtotal;
+        } else if (computedItemsTotal > 0) {
+          discountBaseTotal = computedItemsTotal;
+        }
+      }
     }
 
     // If discount.products is set (not empty), require at least one cart product to match
@@ -161,9 +211,13 @@ router.post('/apply', async (req, res) => {
       if (!eligible) {
         return res.status(400).json({ message: 'This discount does not apply to any products in your cart.' });
       }
+
+      if (discountBaseTotal <= 0) {
+        return res.status(400).json({ message: 'No eligible product amount found for this discount code.' });
+      }
     }
 
-    const discountAmount = discount.computeDiscount(itemsTotal);
+    const discountAmount = discount.computeDiscount(itemsTotal, discountBaseTotal);
 
     res.json({
       code: discount.code,
