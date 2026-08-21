@@ -1,5 +1,6 @@
 const express = require('express');
 const Category = require('../models/Category');
+const { protect, admin } = require('../middleware/authMiddleware');
 const router = express.Router();
 
 // Get all categories (with subcategories)
@@ -43,9 +44,47 @@ router.put('/:id', async (req, res) => {
 // Delete a category
 router.delete('/:id', async (req, res) => {
   try {
-    const category = await Category.findByIdAndDelete(req.params.id);
+    const category = await Category.findById(req.params.id);
     if (!category) return res.status(404).json({ message: 'Category not found' });
-    res.json({ message: 'Category deleted' });
+    await category.softDelete();
+    res.json({ message: 'Category archived' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// List archived categories
+router.get('/archived/list', protect, admin, async (req, res) => {
+  try {
+    const categories = await Category.find({ deletedAt: { $ne: null } })
+      .setOptions({ includeDeleted: true })
+      .sort({ deletedAt: -1 });
+    res.json(categories);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Restore archived category
+router.put('/:id/restore', protect, admin, async (req, res) => {
+  try {
+    const category = await Category.findById(req.params.id).setOptions({ includeDeleted: true });
+    if (!category) return res.status(404).json({ message: 'Category not found' });
+    if (!category.deletedAt) return res.status(400).json({ message: 'Category is not archived' });
+    await category.restore();
+    res.json({ message: 'Category restored' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Permanently delete category
+router.delete('/:id/purge', protect, admin, async (req, res) => {
+  try {
+    const category = await Category.findById(req.params.id).setOptions({ includeDeleted: true });
+    if (!category) return res.status(404).json({ message: 'Category not found' });
+    await Category.deleteOne({ _id: category._id });
+    res.json({ message: 'Category permanently deleted' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

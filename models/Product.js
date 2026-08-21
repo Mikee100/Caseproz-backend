@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const softDeletePlugin = require('./plugins/softDelete');
 
 const variantSchema = mongoose.Schema(
   {
@@ -55,6 +56,8 @@ productSchema.index({ isActive: 1, createdAt: -1 });
 productSchema.index({ isActive: 1, isFeatured: 1, createdAt: -1 });
 productSchema.index({ isActive: 1, isFeatured: 1, heroOrder: 1, createdAt: -1 });
 productSchema.index({ isActive: 1, onSale: 1, createdAt: -1 });
+
+productSchema.plugin(softDeletePlugin);
 
 const Product = mongoose.model('Product', productSchema);
 

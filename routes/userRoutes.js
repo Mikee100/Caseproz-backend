@@ -641,13 +641,70 @@ router.delete('/:id', protect, admin, async (req, res) => {
     const user = await User.findById(req.params.id);
 
     if (user) {
-      await User.deleteOne({ _id: user._id });
-      res.json({ message: 'User removed' });
+      await user.softDelete(req.user?._id);
+      res.json({ message: 'User archived' });
     } else {
       res.status(404).json({ message: 'User not found' });
     }
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+});
+
+// @desc    List archived users
+// @route   GET /api/users/archived/list
+// @access  Private/Admin
+router.get('/archived/list', protect, admin, async (req, res) => {
+  try {
+    const users = await User.find({ deletedAt: { $ne: null } })
+      .setOptions({ includeDeleted: true })
+      .sort({ deletedAt: -1 })
+      .select('-password');
+
+    res.json(users);
+  } catch (error) {
+    res.status(500).json({ message: error.message || 'Failed to load archived users' });
+  }
+});
+
+// @desc    Restore archived user
+// @route   PUT /api/users/:id/restore
+// @access  Private/Admin
+router.put('/:id/restore', protect, admin, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).setOptions({ includeDeleted: true });
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (!user.deletedAt) {
+      return res.status(400).json({ message: 'User is not archived' });
+    }
+
+    await user.restore();
+
+    res.json({ message: 'User restored' });
+  } catch (error) {
+    res.status(500).json({ message: error.message || 'Failed to restore user' });
+  }
+});
+
+// @desc    Permanently delete user
+// @route   DELETE /api/users/:id/purge
+// @access  Private/Admin
+router.delete('/:id/purge', protect, admin, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).setOptions({ includeDeleted: true });
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    await User.deleteOne({ _id: user._id });
+    res.json({ message: 'User permanently deleted' });
+  } catch (error) {
+    res.status(500).json({ message: error.message || 'Failed to permanently delete user' });
   }
 });
 

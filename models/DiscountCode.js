@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const softDeletePlugin = require('./plugins/softDelete');
 
 const discountCodeSchema = new mongoose.Schema(
   {
@@ -23,6 +24,8 @@ const discountCodeSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+discountCodeSchema.plugin(softDeletePlugin);
 
 discountCodeSchema.methods.isCurrentlyValid = function (orderTotal) {
   if (!this.active) return false;

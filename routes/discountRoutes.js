@@ -159,10 +159,66 @@ router.delete('/:id', protect, admin, async (req, res) => {
       return res.status(404).json({ message: 'Discount code not found' });
     }
 
-    await discount.deleteOne();
-    res.json({ message: 'Discount code removed' });
+    discount.active = false;
+    await discount.softDelete(req.user?._id);
+    res.json({ message: 'Discount code archived' });
   } catch (error) {
     res.status(500).json({ message: error.message || 'Failed to delete discount code' });
+  }
+});
+
+// @desc    List archived discount codes
+// @route   GET /api/discounts/archived/list
+// @access  Private/Admin
+router.get('/archived/list', protect, admin, async (req, res) => {
+  try {
+    const codes = await DiscountCode.find({ deletedAt: { $ne: null } })
+      .setOptions({ includeDeleted: true })
+      .sort({ deletedAt: -1 });
+
+    res.json(codes.map((code) => serializeDiscountForClient(code)));
+  } catch (error) {
+    res.status(500).json({ message: error.message || 'Failed to load archived discount codes' });
+  }
+});
+
+// @desc    Restore archived discount code
+// @route   PUT /api/discounts/:id/restore
+// @access  Private/Admin
+router.put('/:id/restore', protect, admin, async (req, res) => {
+  try {
+    const discount = await DiscountCode.findById(req.params.id).setOptions({ includeDeleted: true });
+    if (!discount) {
+      return res.status(404).json({ message: 'Discount code not found' });
+    }
+    if (!discount.deletedAt) {
+      return res.status(400).json({ message: 'Discount code is not archived' });
+    }
+
+    await discount.restore();
+    discount.active = true;
+    await discount.save();
+
+    res.json({ message: 'Discount code restored' });
+  } catch (error) {
+    res.status(500).json({ message: error.message || 'Failed to restore discount code' });
+  }
+});
+
+// @desc    Permanently delete discount code
+// @route   DELETE /api/discounts/:id/purge
+// @access  Private/Admin
+router.delete('/:id/purge', protect, admin, async (req, res) => {
+  try {
+    const discount = await DiscountCode.findById(req.params.id).setOptions({ includeDeleted: true });
+    if (!discount) {
+      return res.status(404).json({ message: 'Discount code not found' });
+    }
+
+    await DiscountCode.deleteOne({ _id: discount._id });
+    res.json({ message: 'Discount code permanently deleted' });
+  } catch (error) {
+    res.status(500).json({ message: error.message || 'Failed to permanently delete discount code' });
   }
 });
 
