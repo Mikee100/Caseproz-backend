@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const softDeletePlugin = require('./plugins/softDelete');
 
 const discountCodeSchema = new mongoose.Schema(
   {
@@ -10,7 +11,7 @@ const discountCodeSchema = new mongoose.Schema(
       default: 'percent',
     },
     value: { type: Number, required: true }, // percent (e.g. 10) or amount in KSh
-    minOrderTotal: { type: Number, default: 0 },
+    minOrderTotal: { type: Number },
     maxDiscount: { type: Number }, // optional cap
     active: { type: Boolean, default: true },
     startsAt: { type: Date },
@@ -23,6 +24,8 @@ const discountCodeSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+discountCodeSchema.plugin(softDeletePlugin);
 
 discountCodeSchema.methods.isCurrentlyValid = function (orderTotal) {
   if (!this.active) return false;
@@ -63,7 +66,7 @@ discountCodeSchema.methods.getInvalidReason = function (orderTotal) {
 
   if (typeof this.minOrderTotal === 'number') {
     if (orderTotal < this.minOrderTotal) {
-      return `This code requires a minimum cart subtotal of KSh ${Number(this.minOrderTotal || 0).toLocaleString()}.`;
+      return `This code requires a minimum cart subtotal of KSh ${Number(this.minOrderTotal).toLocaleString()}.`;
     }
   }
 

@@ -577,14 +577,73 @@ router.delete('/:id', protect, admin, async (req, res) => {
     const product = await Product.findById(req.params.id);
 
     if (product) {
-      await product.deleteOne();
+      await product.softDelete(req.user?._id);
       invalidateProductsCache();
-      res.json({ message: 'Product removed' });
+      res.json({ message: 'Product archived' });
     } else {
       res.status(404).json({ message: 'Product not found' });
     }
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+});
+
+// @desc    List archived products
+// @route   GET /api/products/archived
+// @access  Private/Admin
+router.get('/archived/list', protect, admin, async (req, res) => {
+  try {
+    const archivedProducts = await Product.find({ deletedAt: { $ne: null } })
+      .setOptions({ includeDeleted: true })
+      .select(LIST_SELECT_FIELDS)
+      .sort({ deletedAt: -1 })
+      .lean();
+
+    res.json({ products: archivedProducts.map((p) => serializeProductForClient(p, req)) });
+  } catch (error) {
+    res.status(500).json({ message: error.message || 'Failed to load archived products' });
+  }
+});
+
+// @desc    Restore an archived product
+// @route   PUT /api/products/:id/restore
+// @access  Private/Admin
+router.put('/:id/restore', protect, admin, async (req, res) => {
+  try {
+    const product = await Product.findById(req.params.id).setOptions({ includeDeleted: true });
+
+    if (!product) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+
+    if (!product.deletedAt) {
+      return res.status(400).json({ message: 'Product is not archived' });
+    }
+
+    await product.restore();
+    invalidateProductsCache();
+    res.json({ message: 'Product restored' });
+  } catch (error) {
+    res.status(500).json({ message: error.message || 'Failed to restore product' });
+  }
+});
+
+// @desc    Permanently delete a product
+// @route   DELETE /api/products/:id/purge
+// @access  Private/Admin
+router.delete('/:id/purge', protect, admin, async (req, res) => {
+  try {
+    const product = await Product.findById(req.params.id).setOptions({ includeDeleted: true });
+
+    if (!product) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+
+    await Product.deleteOne({ _id: product._id });
+    invalidateProductsCache();
+    res.json({ message: 'Product permanently deleted' });
+  } catch (error) {
+    res.status(500).json({ message: error.message || 'Failed to permanently delete product' });
   }
 });
 

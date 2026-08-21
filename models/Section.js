@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const softDeletePlugin = require('./plugins/softDelete');
 
 // Ensure referenced models are registered before Section
 require('./Product');
@@ -27,5 +28,7 @@ const sectionSchema = new mongoose.Schema({
 }, {
   timestamps: true
 });
+
+sectionSchema.plugin(softDeletePlugin);
 
 module.exports = mongoose.model('Section', sectionSchema);
