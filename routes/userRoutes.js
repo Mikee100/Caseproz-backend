@@ -8,6 +8,7 @@ const generateToken = require('../utils/generateToken');
 const sendEmail = require('../utils/sendEmail');
 const { generateVerificationEmail, generatePasswordResetEmail } = require('../utils/emailTemplates');
 const { protect, admin } = require('../middleware/authMiddleware');
+const { logAuditEvent, buildActorFromReq } = require('../utils/auditLogger');
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 const buildUserPayload = (user) => ({
@@ -580,6 +581,9 @@ router.put('/:id', protect, admin, async (req, res) => {
       tags,
     } = req.body;
 
+    const previousRole = user.role || (user.isAdmin ? 'MANAGER' : 'CUSTOMER');
+    const previousIsAdmin = Boolean(user.isAdmin);
+
     user.name = name || user.name;
     user.email = email || user.email;
 
@@ -614,6 +618,24 @@ router.put('/:id', protect, admin, async (req, res) => {
 
     const updatedUser = await user.save();
 
+    const nextRole = updatedUser.role || (updatedUser.isAdmin ? 'MANAGER' : 'CUSTOMER');
+    if (previousRole !== nextRole || previousIsAdmin !== Boolean(updatedUser.isAdmin)) {
+      await logAuditEvent({
+        req,
+        actor: buildActorFromReq(req),
+        action: 'user_admin_access_changed',
+        entityType: 'user',
+        entityId: updatedUser._id,
+        details: {
+          targetUserEmail: updatedUser.email,
+          previousRole,
+          nextRole,
+          previousIsAdmin,
+          nextIsAdmin: Boolean(updatedUser.isAdmin),
+        },
+      });
+    }
+
     res.json({
       _id: updatedUser._id,
       name: updatedUser.name,
@@ -642,6 +664,16 @@ router.delete('/:id', protect, admin, async (req, res) => {
 
     if (user) {
       await user.softDelete(req.user?._id);
+
+      await logAuditEvent({
+        req,
+        actor: buildActorFromReq(req),
+        action: 'user_archived',
+        entityType: 'user',
+        entityId: user._id,
+        details: { targetUserEmail: user.email },
+      });
+
       res.json({ message: 'User archived' });
     } else {
       res.status(404).json({ message: 'User not found' });
@@ -684,6 +716,15 @@ router.put('/:id/restore', protect, admin, async (req, res) => {
 
     await user.restore();
 
+    await logAuditEvent({
+      req,
+      actor: buildActorFromReq(req),
+      action: 'user_restored',
+      entityType: 'user',
+      entityId: user._id,
+      details: { targetUserEmail: user.email },
+    });
+
     res.json({ message: 'User restored' });
   } catch (error) {
     res.status(500).json({ message: error.message || 'Failed to restore user' });
@@ -702,6 +743,16 @@ router.delete('/:id/purge', protect, admin, async (req, res) => {
     }
 
     await User.deleteOne({ _id: user._id });
+
+    await logAuditEvent({
+      req,
+      actor: buildActorFromReq(req),
+      action: 'user_purged',
+      entityType: 'user',
+      entityId: user._id,
+      details: { targetUserEmail: user.email },
+    });
+
     res.json({ message: 'User permanently deleted' });
   } catch (error) {
     res.status(500).json({ message: error.message || 'Failed to permanently delete user' });

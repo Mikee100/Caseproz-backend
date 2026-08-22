@@ -8,7 +8,13 @@ const SiteConfig = require('../models/SiteConfig');
 const { protect, admin } = require('../middleware/authMiddleware');
 const sendEmail = require('../utils/sendEmail');
 const { generateOrderConfirmationEmail } = require('../utils/emailTemplates');
+const { logAuditEvent, buildActorFromReq } = require('../utils/auditLogger');
 // const { SHIPPING_ZONES } = require('../utils/shippingZones');
+
+const DEFAULT_PICKUP_LOCATION = 'CaseProz Shop, Simara Mall, 5th Floor, Shop No. 5, Tom Mboya Street';
+const DEFAULT_PICKUP_CITY = 'Nairobi';
+const DEFAULT_PICKUP_POSTAL_CODE = '00100';
+const DEFAULT_PICKUP_COUNTRY = 'Kenya';
 
 const VALID_STATUSES = [
   'pending',
@@ -95,12 +101,61 @@ router.post('/', protect, async (req, res) => {
     orderItems,
     shippingAddress,
     paymentMethod,
+    fulfillmentMethod,
     discountCode: rawDiscountCode,
     // shippingZoneId, // No longer using static zone IDs
   } = req.body;
 
   if (!orderItems || orderItems.length === 0) {
     return res.status(400).json({ message: 'No order items' });
+  }
+
+  if (!shippingAddress) {
+    return res.status(400).json({ message: 'Shipping or pickup details are required' });
+  }
+
+  const requestedFulfillment =
+    fulfillmentMethod === 'pickup' || shippingAddress.isPickup ? 'pickup' : 'delivery';
+  const isPickup = requestedFulfillment === 'pickup';
+
+  const normalizedShippingAddress = {
+    name: shippingAddress.name ? String(shippingAddress.name).trim() : '',
+    phone: shippingAddress.phone ? String(shippingAddress.phone).trim() : '',
+    address: shippingAddress.address ? String(shippingAddress.address).trim() : '',
+    city: shippingAddress.city ? String(shippingAddress.city).trim() : '',
+    postalCode: shippingAddress.postalCode ? String(shippingAddress.postalCode).trim() : '',
+    country: shippingAddress.country ? String(shippingAddress.country).trim() : 'Kenya',
+    region: shippingAddress.region ? String(shippingAddress.region).trim() : '',
+    location: shippingAddress.location ? String(shippingAddress.location).trim() : '',
+    isPickup,
+    pickupLocation: shippingAddress.pickupLocation ? String(shippingAddress.pickupLocation).trim() : '',
+  };
+
+  if (!normalizedShippingAddress.name || !normalizedShippingAddress.phone) {
+    return res.status(400).json({ message: 'Recipient name and phone are required' });
+  }
+
+  if (isPickup) {
+    normalizedShippingAddress.pickupLocation = normalizedShippingAddress.pickupLocation || DEFAULT_PICKUP_LOCATION;
+    normalizedShippingAddress.region = 'PICKUP';
+    normalizedShippingAddress.location = normalizedShippingAddress.pickupLocation;
+    normalizedShippingAddress.address = normalizedShippingAddress.address || normalizedShippingAddress.pickupLocation;
+    normalizedShippingAddress.city = normalizedShippingAddress.city || DEFAULT_PICKUP_CITY;
+    normalizedShippingAddress.postalCode = normalizedShippingAddress.postalCode || DEFAULT_PICKUP_POSTAL_CODE;
+    normalizedShippingAddress.country = normalizedShippingAddress.country || DEFAULT_PICKUP_COUNTRY;
+  } else {
+    if (
+      !normalizedShippingAddress.address ||
+      !normalizedShippingAddress.city ||
+      !normalizedShippingAddress.postalCode ||
+      !normalizedShippingAddress.country
+    ) {
+      return res.status(400).json({ message: 'Complete delivery address is required' });
+    }
+
+    if (!normalizedShippingAddress.region || !normalizedShippingAddress.location) {
+      return res.status(400).json({ message: 'Delivery region and location are required' });
+    }
   }
 
   try {
@@ -173,19 +228,17 @@ router.post('/', protect, async (req, res) => {
     // ── 3. Resolve shipping price from SiteConfig ──
     const siteConfig = await SiteConfig.getSingleton();
     let shippingPrice = 500; // default fallback
-    const isPickup = Boolean(shippingAddress && shippingAddress.isPickup);
-
     if (isPickup) {
       shippingPrice = 0;
     }
 
-    if (!isPickup && shippingAddress && shippingAddress.region && shippingAddress.location) {
+    if (!isPickup && normalizedShippingAddress.region && normalizedShippingAddress.location) {
       const group = (siteConfig.deliveryRouteGroups || []).find(
-        (g) => g.road && g.road.trim().toUpperCase() === shippingAddress.region.trim().toUpperCase()
+        (g) => g.road && g.road.trim().toUpperCase() === normalizedShippingAddress.region.trim().toUpperCase()
       );
       if (group) {
         const item = (group.items || []).find(
-          (i) => i.location && i.location.trim().toUpperCase() === shippingAddress.location.trim().toUpperCase()
+          (i) => i.location && i.location.trim().toUpperCase() === normalizedShippingAddress.location.trim().toUpperCase()
         );
         if (item) {
           shippingPrice = item.price;
@@ -295,7 +348,8 @@ router.post('/', protect, async (req, res) => {
     const order = new Order({
       orderItems: trustedItems,
       user: req.user._id,
-      shippingAddress,
+      shippingAddress: normalizedShippingAddress,
+      fulfillmentMethod: requestedFulfillment,
       paymentMethod,
       status: 'pending',
       statusHistory: [{ status: 'pending', note: 'Order placed' }],
@@ -348,8 +402,13 @@ router.post('/', protect, async (req, res) => {
         const itemsText = createdOrder.orderItems
           .map((item) => `${item.qty} x ${item.name} (KSh ${item.price.toLocaleString()})`)
           .join('\n');
+        const isPickupOrder =
+          createdOrder.fulfillmentMethod === 'pickup' ||
+          (createdOrder.shippingAddress && createdOrder.shippingAddress.isPickup);
         const shippingText = createdOrder.shippingAddress
-          ? `${createdOrder.shippingAddress.address}, ${createdOrder.shippingAddress.city}, ${createdOrder.shippingAddress.postalCode}, ${createdOrder.shippingAddress.country}`
+          ? isPickupOrder
+            ? `Pickup at ${createdOrder.shippingAddress.pickupLocation || createdOrder.shippingAddress.location || DEFAULT_PICKUP_LOCATION}`
+            : `${createdOrder.shippingAddress.address}, ${createdOrder.shippingAddress.city}, ${createdOrder.shippingAddress.postalCode}, ${createdOrder.shippingAddress.country}`
           : 'N/A';
 
         const textLines = [
@@ -365,7 +424,7 @@ router.post('/', protect, async (req, res) => {
           itemsText,
           ``,
           `Items total: KSh ${createdOrder.itemsPrice.toLocaleString()}`,
-          `Shipping: KSh ${createdOrder.shippingPrice.toLocaleString()}`,
+          `Shipping: ${isPickupOrder ? 'Pick up (Free)' : `KSh ${createdOrder.shippingPrice.toLocaleString()}`}`,
           `Tax: KSh ${createdOrder.taxPrice.toLocaleString()}`,
         ];
 
@@ -378,7 +437,7 @@ router.post('/', protect, async (req, res) => {
         textLines.push(
           `Total: KSh ${createdOrder.totalPrice.toLocaleString()}`,
           ``,
-          `Shipping address:`,
+          `${isPickupOrder ? 'Pickup details:' : 'Shipping address:'}`,
           shippingText,
           ``,
           `Thank you for shopping with CaseProz.`,
@@ -459,6 +518,18 @@ router.put('/:id/deliver', protect, admin, async (req, res) => {
 
     const updatedOrder = await order.save();
 
+    await logAuditEvent({
+      req,
+      actor: buildActorFromReq(req),
+      action: 'order_marked_delivered',
+      entityType: 'order',
+      entityId: updatedOrder._id,
+      details: {
+        orderId: String(updatedOrder._id),
+        status: updatedOrder.status,
+      },
+    });
+
     res.json(updatedOrder);
   } else {
     res.status(404).json({ message: 'Order not found' });
@@ -505,6 +576,21 @@ router.put('/:id/status', protect, admin, async (req, res) => {
 
   const updatedOrder = await order.save();
 
+  await logAuditEvent({
+    req,
+    actor: buildActorFromReq(req),
+    action: 'order_status_updated',
+    entityType: 'order',
+    entityId: updatedOrder._id,
+    details: {
+      orderId: String(updatedOrder._id),
+      status,
+      trackingNumber: trackingNumber || '',
+      carrier: carrier || '',
+      note: note || '',
+    },
+  });
+
   res.json(updatedOrder);
 });
 
@@ -544,6 +630,19 @@ router.put('/bulk/status', protect, admin, async (req, res) => {
     }
 
     const updatedOrders = await Promise.all(orders.map((o) => o.save()));
+
+    await logAuditEvent({
+      req,
+      actor: buildActorFromReq(req),
+      action: 'orders_bulk_status_updated',
+      entityType: 'order',
+      details: {
+        orderIds: updatedOrders.map((o) => String(o._id)),
+        updatedCount: updatedOrders.length,
+        status,
+        note: note || '',
+      },
+    });
 
     res.json({
       updatedCount: updatedOrders.length,

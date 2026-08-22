@@ -21,7 +21,7 @@ const SHIPPING_ZONES = [
   { id: 'kiserian-kitengela-ngongtown', label: 'Kiserian, Kitengela, Ngong Town', price: 1000 },
   { id: 'jkia-kikuyu', label: 'JKIA Airport, Kikuyu', price: 700 },
   { id: 'other-areas-courier', label: 'All Other Areas and Outside Nairobi - G4S, Wells Fargo, Easy Coach, Mash Courier', price: 600 },
-  { id: 'pickup-sweech-westlands', label: 'Pick up from Sweech Westlands Location', price: 0 },
+  { id: 'pickup-sweech-westlands', label: 'Pick up from CaseProz shop (Simara Mall, 5th Floor, Shop No. 5, Tom Mboya Street)', price: 0 },
 ];
 
 module.exports = { SHIPPING_ZONES };

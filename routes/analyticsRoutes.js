@@ -4,11 +4,98 @@ const User = require('../models/User');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const AnalyticsEvent = require('../models/AnalyticsEvent');
+const AuditLog = require('../models/AuditLog');
 const DiscountCode = require('../models/DiscountCode');
 const Section = require('../models/Section');
 const SiteConfig = require('../models/SiteConfig');
 const mongoose = require('mongoose');
 const { protect, admin } = require('../middleware/authMiddleware');
+
+// @desc    Get audit logs
+// @route   GET /api/analytics/audit-logs
+// @access  Private/Admin
+router.get('/audit-logs', protect, admin, async (req, res) => {
+  try {
+    const {
+      page = 1,
+      pageSize = 30,
+      action,
+      entityType,
+      actorEmail,
+      q,
+      from,
+      to,
+    } = req.query;
+
+    const pageNumber = Math.max(1, Number(page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(pageSize) || 30));
+    const skip = (pageNumber - 1) * limit;
+
+    const filter = {};
+
+    if (action) {
+      filter.action = String(action).trim();
+    }
+
+    if (entityType) {
+      filter.entityType = String(entityType).trim();
+    }
+
+    if (actorEmail) {
+      filter['actor.email'] = { $regex: String(actorEmail).trim(), $options: 'i' };
+    }
+
+    if (from || to) {
+      filter.createdAt = {};
+      if (from) {
+        const fromDate = new Date(from);
+        if (!Number.isNaN(fromDate.getTime())) {
+          filter.createdAt.$gte = fromDate;
+        }
+      }
+      if (to) {
+        const toDate = new Date(to);
+        if (!Number.isNaN(toDate.getTime())) {
+          toDate.setHours(23, 59, 59, 999);
+          filter.createdAt.$lte = toDate;
+        }
+      }
+
+      if (Object.keys(filter.createdAt).length === 0) {
+        delete filter.createdAt;
+      }
+    }
+
+    if (q) {
+      const queryText = String(q).trim();
+      filter.$or = [
+        { action: { $regex: queryText, $options: 'i' } },
+        { entityType: { $regex: queryText, $options: 'i' } },
+        { entityId: { $regex: queryText, $options: 'i' } },
+        { 'actor.name': { $regex: queryText, $options: 'i' } },
+        { 'actor.email': { $regex: queryText, $options: 'i' } },
+      ];
+    }
+
+    const [items, total] = await Promise.all([
+      AuditLog.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit),
+      AuditLog.countDocuments(filter),
+    ]);
+
+    res.json({
+      items,
+      pagination: {
+        page: pageNumber,
+        pageSize: limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching audit logs:', error);
+    res.status(500).json({ message: 'Failed to fetch audit logs' });
+  }
+});
 
 const asNumber = (value) => (Number.isFinite(value) ? value : 0);
 

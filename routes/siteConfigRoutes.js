@@ -1,6 +1,7 @@
 const express = require('express');
 const SiteConfig = require('../models/SiteConfig');
 const { protect, admin } = require('../middleware/authMiddleware');
+const { logAuditEvent, buildActorFromReq } = require('../utils/auditLogger');
 
 const router = express.Router();
 
@@ -68,6 +69,40 @@ router.put('/', protect, admin, async (req, res) => {
     }
 
     const updated = await config.save();
+
+    await logAuditEvent({
+      req,
+      actor: buildActorFromReq(req),
+      action: 'site_config_updated',
+      entityType: 'site_config',
+      entityId: updated._id,
+      details: {
+        updatedFields: {
+          taxRate: typeof taxRate === 'number',
+          promoBarText: promoBarText !== undefined,
+          promoBarLink: promoBarLink !== undefined,
+          heroSlides: Array.isArray(heroSlides),
+          curatedCollections: Array.isArray(curatedCollections),
+          homeShowcaseCategories: Array.isArray(homeShowcaseCategories),
+          deliveryRouteGroups: Array.isArray(deliveryRouteGroups),
+          globalLowStockThreshold: typeof globalLowStockThreshold === 'number',
+        },
+      },
+    });
+
+    if (Array.isArray(deliveryRouteGroups)) {
+      await logAuditEvent({
+        req,
+        actor: buildActorFromReq(req),
+        action: 'delivery_routes_updated',
+        entityType: 'site_config',
+        entityId: updated._id,
+        details: {
+          groupCount: deliveryRouteGroups.length,
+        },
+      });
+    }
+
     res.json(updated);
   } catch (error) {
     res.status(400).json({ message: error.message || 'Failed to update site configuration' });
