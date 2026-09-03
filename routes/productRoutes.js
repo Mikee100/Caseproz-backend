@@ -382,11 +382,7 @@ router.get('/', async (req, res) => {
 
     if (brand) {
       const brandFilter = {
-        $or: [
-          { category: { $regex: brand, $options: 'i' } },
-          { subCategory: { $regex: brand, $options: 'i' } },
-          { name: { $regex: brand, $options: 'i' } },
-        ],
+        brand: { $regex: escapeRegex(String(brand).trim()), $options: 'i' },
       };
 
       query = Object.keys(baseQuery).length
