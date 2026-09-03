@@ -6,6 +6,7 @@
  * @returns {string} The HTML content.
  */
 const generateOrderConfirmationEmail = (order, user, recommendedProducts = []) => {
+  const DEFAULT_PICKUP_LOCATION = 'CaseProz Shop, Simara Mall, 5th Floor, Shop No. 5, Tom Mboya Street';
 
   const itemsRowsHtml = order.orderItems
     .map(
@@ -20,8 +21,13 @@ const generateOrderConfirmationEmail = (order, user, recommendedProducts = []) =
     )
     .join('');
 
+  const isPickup =
+    order.fulfillmentMethod === 'pickup' ||
+    (order.shippingAddress && order.shippingAddress.isPickup);
   const shippingText = order.shippingAddress
-    ? `${order.shippingAddress.address}, ${order.shippingAddress.city}, ${order.shippingAddress.postalCode}, ${order.shippingAddress.country}`
+    ? isPickup
+      ? `Pickup at ${order.shippingAddress.pickupLocation || order.shippingAddress.location || DEFAULT_PICKUP_LOCATION}`
+      : `${order.shippingAddress.address}, ${order.shippingAddress.city}, ${order.shippingAddress.postalCode}, ${order.shippingAddress.country}`
     : 'N/A';
 
   const recommendedHtml = recommendedProducts.length > 0 ? `
@@ -101,7 +107,7 @@ const generateOrderConfirmationEmail = (order, user, recommendedProducts = []) =
                         <table width="100%" border="0" cellspacing="0" cellpadding="0">
                           <tr>
                             <td class="col-mobile" width="50%" style="vertical-align: top;">
-                              <h4 style="margin: 0 0 8px; font-size: 13px; text-transform: uppercase; color: #718096; letter-spacing: 0.5px;">Shipping To</h4>
+                              <h4 style="margin: 0 0 8px; font-size: 13px; text-transform: uppercase; color: #718096; letter-spacing: 0.5px;">${isPickup ? 'Pickup Details' : 'Shipping To'}</h4>
                               <p style="margin: 0; font-size: 15px; color: #2d3748; line-height: 1.5;">
                                 ${user ? `<strong>${user.name}</strong><br>` : ''}
                                 ${shippingText}
@@ -138,7 +144,7 @@ const generateOrderConfirmationEmail = (order, user, recommendedProducts = []) =
                           </tr>
                           <tr>
                             <td colspan="2" style="padding: 6px 12px; text-align: right; color: #718096; font-size: 15px;">Shipping</td>
-                            <td style="padding: 6px 12px; text-align: right; color: #1a202c; font-size: 15px; font-weight: 700;">KSh ${order.shippingPrice.toLocaleString()}</td>
+                            <td style="padding: 6px 12px; text-align: right; color: #1a202c; font-size: 15px; font-weight: 700;">${isPickup ? 'Pick up (Free)' : `KSh ${order.shippingPrice.toLocaleString()}`}</td>
                           </tr>
                           <tr>
                             <td colspan="2" style="padding: 6px 12px; text-align: right; color: #718096; font-size: 15px;">Tax</td>

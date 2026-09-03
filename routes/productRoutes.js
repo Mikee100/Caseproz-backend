@@ -3,6 +3,7 @@ const router = express.Router();
 const Product = require('../models/Product');
 const sendEmail = require('../utils/sendEmail');
 const { protect, admin } = require('../middleware/authMiddleware');
+const { logAuditEvent, buildActorFromReq } = require('../utils/auditLogger');
 
 const invalidateProductsCache = () => {
   // No-op placeholder: keep call sites stable after removing list cache.
@@ -475,6 +476,21 @@ router.post('/', protect, admin, async (req, res) => {
 
     const createdProduct = await product.save();
     invalidateProductsCache();
+
+    await logAuditEvent({
+      req,
+      actor: buildActorFromReq(req),
+      action: 'product_created',
+      entityType: 'product',
+      entityId: createdProduct._id,
+      details: {
+        name: createdProduct.name,
+        price: createdProduct.price,
+        stock: createdProduct.stock,
+        isActive: createdProduct.isActive,
+      },
+    });
+
     res.status(201).json(createdProduct);
   } catch (error) {
     res.status(error.statusCode || 400).json({ message: error.message });
@@ -560,6 +576,22 @@ router.put('/:id', protect, admin, async (req, res) => {
 
       const updatedProduct = await product.save();
       invalidateProductsCache();
+
+      await logAuditEvent({
+        req,
+        actor: buildActorFromReq(req),
+        action: 'product_updated',
+        entityType: 'product',
+        entityId: updatedProduct._id,
+        details: {
+          name: updatedProduct.name,
+          price: updatedProduct.price,
+          stock: updatedProduct.stock,
+          isActive: updatedProduct.isActive,
+          onSale: updatedProduct.onSale,
+        },
+      });
+
       res.json(updatedProduct);
     } else {
       res.status(404).json({ message: 'Product not found' });
@@ -579,6 +611,16 @@ router.delete('/:id', protect, admin, async (req, res) => {
     if (product) {
       await product.softDelete(req.user?._id);
       invalidateProductsCache();
+
+      await logAuditEvent({
+        req,
+        actor: buildActorFromReq(req),
+        action: 'product_archived',
+        entityType: 'product',
+        entityId: product._id,
+        details: { name: product.name },
+      });
+
       res.json({ message: 'Product archived' });
     } else {
       res.status(404).json({ message: 'Product not found' });
@@ -622,6 +664,16 @@ router.put('/:id/restore', protect, admin, async (req, res) => {
 
     await product.restore();
     invalidateProductsCache();
+
+    await logAuditEvent({
+      req,
+      actor: buildActorFromReq(req),
+      action: 'product_restored',
+      entityType: 'product',
+      entityId: product._id,
+      details: { name: product.name },
+    });
+
     res.json({ message: 'Product restored' });
   } catch (error) {
     res.status(500).json({ message: error.message || 'Failed to restore product' });
@@ -641,6 +693,16 @@ router.delete('/:id/purge', protect, admin, async (req, res) => {
 
     await Product.deleteOne({ _id: product._id });
     invalidateProductsCache();
+
+    await logAuditEvent({
+      req,
+      actor: buildActorFromReq(req),
+      action: 'product_purged',
+      entityType: 'product',
+      entityId: product._id,
+      details: { name: product.name },
+    });
+
     res.json({ message: 'Product permanently deleted' });
   } catch (error) {
     res.status(500).json({ message: error.message || 'Failed to permanently delete product' });
@@ -668,6 +730,19 @@ router.put('/bulk/availability', protect, admin, async (req, res) => {
     );
 
     invalidateProductsCache();
+
+    await logAuditEvent({
+      req,
+      actor: buildActorFromReq(req),
+      action: 'products_bulk_availability_updated',
+      entityType: 'product',
+      details: {
+        productIds,
+        isActive,
+        matchedCount: result.matchedCount,
+        modifiedCount: result.modifiedCount,
+      },
+    });
 
     res.json({ matchedCount: result.matchedCount, modifiedCount: result.modifiedCount });
   } catch (error) {
@@ -710,6 +785,19 @@ router.put('/bulk/price', protect, admin, async (req, res) => {
 
     const updatedProducts = await Promise.all(products.map((p) => p.save()));
     invalidateProductsCache();
+
+    await logAuditEvent({
+      req,
+      actor: buildActorFromReq(req),
+      action: 'products_bulk_price_updated',
+      entityType: 'product',
+      details: {
+        productIds,
+        mode,
+        value: numericValue,
+        updatedCount: updatedProducts.length,
+      },
+    });
 
     res.json({ updatedCount: updatedProducts.length });
   } catch (error) {

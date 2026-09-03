@@ -2,6 +2,7 @@ const express = require('express');
 const DiscountCode = require('../models/DiscountCode');
 const Product = require('../models/Product');
 const { protect, admin } = require('../middleware/authMiddleware');
+const { logAuditEvent, buildActorFromReq } = require('../utils/auditLogger');
 
 const router = express.Router();
 
@@ -92,6 +93,20 @@ router.post('/', protect, admin, async (req, res) => {
       products: Array.isArray(products) ? products : [],
     });
 
+    await logAuditEvent({
+      req,
+      actor: buildActorFromReq(req),
+      action: 'discount_created',
+      entityType: 'discount',
+      entityId: discount._id,
+      details: {
+        code: discount.code,
+        type: discount.type,
+        value: discount.value,
+        active: discount.active,
+      },
+    });
+
     res.status(201).json(serializeDiscountForClient(discount));
   } catch (error) {
     res.status(400).json({ message: error.message || 'Failed to create discount code' });
@@ -143,6 +158,21 @@ router.put('/:id', protect, admin, async (req, res) => {
     if (products !== undefined) discount.products = Array.isArray(products) ? products : [];
 
     const updated = await discount.save();
+
+    await logAuditEvent({
+      req,
+      actor: buildActorFromReq(req),
+      action: 'discount_updated',
+      entityType: 'discount',
+      entityId: updated._id,
+      details: {
+        code: updated.code,
+        type: updated.type,
+        value: updated.value,
+        active: updated.active,
+      },
+    });
+
     res.json(serializeDiscountForClient(updated));
   } catch (error) {
     res.status(400).json({ message: error.message || 'Failed to update discount code' });
@@ -161,6 +191,16 @@ router.delete('/:id', protect, admin, async (req, res) => {
 
     discount.active = false;
     await discount.softDelete(req.user?._id);
+
+    await logAuditEvent({
+      req,
+      actor: buildActorFromReq(req),
+      action: 'discount_archived',
+      entityType: 'discount',
+      entityId: discount._id,
+      details: { code: discount.code },
+    });
+
     res.json({ message: 'Discount code archived' });
   } catch (error) {
     res.status(500).json({ message: error.message || 'Failed to delete discount code' });
@@ -199,6 +239,15 @@ router.put('/:id/restore', protect, admin, async (req, res) => {
     discount.active = true;
     await discount.save();
 
+    await logAuditEvent({
+      req,
+      actor: buildActorFromReq(req),
+      action: 'discount_restored',
+      entityType: 'discount',
+      entityId: discount._id,
+      details: { code: discount.code },
+    });
+
     res.json({ message: 'Discount code restored' });
   } catch (error) {
     res.status(500).json({ message: error.message || 'Failed to restore discount code' });
@@ -216,6 +265,16 @@ router.delete('/:id/purge', protect, admin, async (req, res) => {
     }
 
     await DiscountCode.deleteOne({ _id: discount._id });
+
+    await logAuditEvent({
+      req,
+      actor: buildActorFromReq(req),
+      action: 'discount_purged',
+      entityType: 'discount',
+      entityId: discount._id,
+      details: { code: discount.code },
+    });
+
     res.json({ message: 'Discount code permanently deleted' });
   } catch (error) {
     res.status(500).json({ message: error.message || 'Failed to permanently delete discount code' });

@@ -17,12 +17,21 @@ const orderSchema = mongoose.Schema(
       },
     ],
     shippingAddress: {
+      name: { type: String },
+      phone: { type: String },
       address: { type: String, required: true },
       city: { type: String, required: true },
       region: { type: String }, // e.g. WAIYAKI WAY
       location: { type: String }, // e.g. Museum Hill
       postalCode: { type: String, required: true },
       country: { type: String, required: true },
+      isPickup: { type: Boolean, default: false },
+      pickupLocation: { type: String },
+    },
+    fulfillmentMethod: {
+      type: String,
+      enum: ['delivery', 'pickup'],
+      default: 'delivery',
     },
     status: {
       type: String,
