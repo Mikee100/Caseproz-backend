@@ -2,6 +2,8 @@ const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
 const compression = require('compression');
+const helmet = require('helmet');
+const { rateLimit } = require('express-rate-limit');
 const connectDB = require('./config/db');
 
 
@@ -25,9 +27,51 @@ const categoryRoutes = require('./routes/categoryRoutes');
 const path = require('path');
 
 const app = express();
+app.disable('x-powered-by');
 
 // Trust all proxy layers on Render/Vercel to correctly identify HTTPS
 app.set('trust proxy', true);
+
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+  })
+);
+
+const PUBLIC_API_RATE_LIMIT_MAX = Number(process.env.PUBLIC_API_RATE_LIMIT_MAX || 300);
+const AUTH_RATE_LIMIT_MAX = Number(process.env.AUTH_RATE_LIMIT_MAX || 12);
+const PASSWORD_RESET_RATE_LIMIT_MAX = Number(process.env.PASSWORD_RESET_RATE_LIMIT_MAX || 6);
+
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: Number.isFinite(PUBLIC_API_RATE_LIMIT_MAX) ? Math.max(50, PUBLIC_API_RATE_LIMIT_MAX) : 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many requests, please try again shortly.' },
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: Number.isFinite(AUTH_RATE_LIMIT_MAX) ? Math.max(3, AUTH_RATE_LIMIT_MAX) : 12,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many login attempts, please try again later.' },
+});
+
+const passwordResetLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: Number.isFinite(PASSWORD_RESET_RATE_LIMIT_MAX) ? Math.max(3, PASSWORD_RESET_RATE_LIMIT_MAX) : 6,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many password reset requests, please try again later.' },
+});
+
+app.use('/api', apiLimiter);
+app.use('/api/users/login', authLimiter);
+app.use('/api/users/google', authLimiter);
+app.use('/api/users/forgot-password', passwordResetLimiter);
+app.use('/api/users/reset-password', passwordResetLimiter);
 
 const allowedOrigins = [
 
@@ -50,7 +94,7 @@ app.use(
     credentials: true,
   })
 );
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 app.use(compression());
 
 const PUBLIC_API_CACHE_TTL = Number(process.env.PUBLIC_API_CACHE_TTL || 60);
