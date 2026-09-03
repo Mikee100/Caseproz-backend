@@ -10,6 +10,12 @@ const { generateVerificationEmail, generatePasswordResetEmail } = require('../ut
 const { protect, admin } = require('../middleware/authMiddleware');
 const { logAuditEvent, buildActorFromReq } = require('../utils/auditLogger');
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PASSWORD_RESET_GENERIC_MESSAGE = 'If an account exists for that email, a password reset link has been sent.';
+
+const normalizeEmail = (value) => (typeof value === 'string' ? value.toLowerCase().trim() : '');
+const isValidEmail = (value) => EMAIL_REGEX.test(value);
+const isValidPassword = (value) => typeof value === 'string' && value.length >= 8;
 
 const buildUserPayload = (user) => ({
   _id: user._id,
@@ -30,8 +36,12 @@ const buildUserPayload = (user) => ({
 // @route   POST /api/users/login
 // @access  Public
 router.post('/login', async (req, res) => {
-  const { password } = req.body;
-  const email = req.body.email ? req.body.email.toLowerCase().trim() : '';
+  const { password } = req.body || {};
+  const email = normalizeEmail(req.body && req.body.email);
+
+  if (!isValidEmail(email) || typeof password !== 'string' || !password) {
+    return res.status(400).json({ message: 'Invalid login payload' });
+  }
 
   const user = await User.findOne({ email });
 
@@ -56,7 +66,11 @@ router.post('/login', async (req, res) => {
 // @route   POST /api/users/google
 // @access  Public
 router.post('/google', async (req, res) => {
-  const { idToken } = req.body;
+  const { idToken } = req.body || {};
+
+  if (typeof idToken !== 'string' || idToken.trim().length < 20) {
+    return res.status(400).json({ message: 'Invalid Google token payload' });
+  }
 
   try {
     const ticket = await client.verifyIdToken({
@@ -133,7 +147,19 @@ router.post('/google', async (req, res) => {
 // @access  Public
 router.post('/', async (req, res) => {
   const { name, password, phone, city, address } = req.body;
-  const email = req.body.email ? req.body.email.toLowerCase().trim() : '';
+  const email = normalizeEmail(req.body && req.body.email);
+
+  if (typeof name !== 'string' || name.trim().length < 2 || name.trim().length > 80) {
+    return res.status(400).json({ message: 'Name must be between 2 and 80 characters' });
+  }
+
+  if (!isValidEmail(email)) {
+    return res.status(400).json({ message: 'Invalid email address' });
+  }
+
+  if (!isValidPassword(password)) {
+    return res.status(400).json({ message: 'Password must be at least 8 characters long' });
+  }
 
   const userExists = await User.findOne({ email });
 
@@ -208,9 +234,16 @@ router.get('/verify/:token', async (req, res) => {
 // @route   POST /api/users/forgot-password
 // @access  Public
 router.post('/forgot-password', async (req, res) => {
-  const email = req.body.email ? req.body.email.toLowerCase().trim() : '';
+  const email = normalizeEmail(req.body && req.body.email);
+
+  if (!isValidEmail(email)) {
+    return res.status(200).json({ message: PASSWORD_RESET_GENERIC_MESSAGE });
+  }
+
   const user = await User.findOne({ email });
-  if (!user) return res.status(404).json({ message: 'There is no user with that email' });
+  if (!user) {
+    return res.status(200).json({ message: PASSWORD_RESET_GENERIC_MESSAGE });
+  }
 
   const resetToken = crypto.randomBytes(20).toString('hex');
   user.resetPasswordToken = resetToken;
@@ -227,13 +260,13 @@ router.post('/forgot-password', async (req, res) => {
       subject: 'Password Reset Request',
       html: message,
     });
-    res.status(200).json({ message: 'Password reset email sent' });
+    res.status(200).json({ message: PASSWORD_RESET_GENERIC_MESSAGE });
   } catch (error) {
     console.error(error);
     user.resetPasswordToken = undefined;
     user.resetPasswordExpire = undefined;
     await user.save();
-    res.status(500).json({ message: 'Email could not be sent' });
+    res.status(200).json({ message: PASSWORD_RESET_GENERIC_MESSAGE });
   }
 });
 
@@ -241,6 +274,11 @@ router.post('/forgot-password', async (req, res) => {
 // @route   PUT /api/users/reset-password/:token
 // @access  Public
 router.put('/reset-password/:token', async (req, res) => {
+  const nextPassword = req.body && req.body.password;
+  if (!isValidPassword(nextPassword)) {
+    return res.status(400).json({ message: 'Password must be at least 8 characters long' });
+  }
+
   const user = await User.findOne({
     resetPasswordToken: req.params.token,
     resetPasswordExpire: { $gt: Date.now() }
@@ -250,7 +288,7 @@ router.put('/reset-password/:token', async (req, res) => {
     return res.status(400).json({ message: 'Invalid or expired reset token' });
   }
 
-  user.password = req.body.password;
+  user.password = nextPassword;
   user.resetPasswordToken = undefined;
   user.resetPasswordExpire = undefined;
   await user.save();

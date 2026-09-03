@@ -27,6 +27,11 @@ const VALID_STATUSES = [
   'cancelled',
 ];
 
+const OBJECT_ID_REGEX = /^[a-f\d]{24}$/i;
+
+const isValidObjectId = (value) => typeof value === 'string' && OBJECT_ID_REGEX.test(value);
+const isPositiveInteger = (value) => Number.isInteger(value) && value > 0;
+
 // Helper to build a Mongo query object from common admin filter params
 const buildOrderAdminQuery = async (req) => {
   const {
@@ -106,11 +111,38 @@ router.post('/', protect, async (req, res) => {
     // shippingZoneId, // No longer using static zone IDs
   } = req.body;
 
-  if (!orderItems || orderItems.length === 0) {
-    return res.status(400).json({ message: 'No order items' });
+  if (!Array.isArray(orderItems) || orderItems.length === 0 || orderItems.length > 100) {
+    return res.status(400).json({ message: 'orderItems must contain between 1 and 100 items' });
   }
 
-  if (!shippingAddress) {
+  for (const item of orderItems) {
+    if (!item || typeof item !== 'object') {
+      return res.status(400).json({ message: 'Invalid order item payload' });
+    }
+
+    if (!isValidObjectId(String(item.product || ''))) {
+      return res.status(400).json({ message: 'Invalid product identifier in order item' });
+    }
+
+    const qty = Number(item.qty);
+    if (!isPositiveInteger(qty) || qty > 50) {
+      return res.status(400).json({ message: 'Each item quantity must be an integer between 1 and 50' });
+    }
+
+    if (item.variantSku && String(item.variantSku).length > 120) {
+      return res.status(400).json({ message: 'Invalid variant selection' });
+    }
+  }
+
+  if (paymentMethod && String(paymentMethod).trim().length > 60) {
+    return res.status(400).json({ message: 'Invalid payment method' });
+  }
+
+  if (rawDiscountCode && String(rawDiscountCode).trim().length > 64) {
+    return res.status(400).json({ message: 'Invalid discount code' });
+  }
+
+  if (!shippingAddress || typeof shippingAddress !== 'object') {
     return res.status(400).json({ message: 'Shipping or pickup details are required' });
   }
 

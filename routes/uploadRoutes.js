@@ -41,6 +41,12 @@ function disableCloudinary(reason) {
   console.warn(`[upload] Cloudinary disabled. Falling back to local uploads. Reason: ${cloudinaryDisabledReason}`);
 }
 
+const MAX_UPLOAD_SIZE_MB = Number(process.env.MAX_UPLOAD_SIZE_MB || 5);
+const MAX_UPLOAD_FILE_SIZE =
+  Number.isFinite(MAX_UPLOAD_SIZE_MB) && MAX_UPLOAD_SIZE_MB > 0
+    ? Math.floor(MAX_UPLOAD_SIZE_MB * 1024 * 1024)
+    : 5 * 1024 * 1024;
+
 const storage = multer.memoryStorage();
 
 function checkFileType(file, cb) {
@@ -51,16 +57,36 @@ function checkFileType(file, cb) {
   if (extname && mimetype) {
     return cb(null, true);
   } else {
-    cb('Images only!');
+    cb(new Error('Images only! Allowed formats: jpg, jpeg, png, webp.'));
   }
 }
 
 const upload = multer({
   storage,
+  limits: {
+    fileSize: MAX_UPLOAD_FILE_SIZE,
+    files: 1,
+  },
   fileFilter: function (req, file, cb) {
     checkFileType(file, cb);
   },
 });
+
+const handleMulterUpload = (req, res, next) => {
+  upload.single('image')(req, res, (error) => {
+    if (!error) {
+      return next();
+    }
+
+    if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({
+        message: `Image is too large. Maximum allowed size is ${Math.floor(MAX_UPLOAD_FILE_SIZE / (1024 * 1024))}MB.`,
+      });
+    }
+
+    return res.status(400).json({ message: error.message || 'Invalid upload payload' });
+  });
+};
 
 function ensureDir(dirPath) {
   if (!fs.existsSync(dirPath)) {
@@ -82,7 +108,7 @@ function saveLocally(file) {
   return `/uploads/fallback/${filename}`;
 }
 
-router.post('/', upload.single('image'), async (req, res) => {
+router.post('/', handleMulterUpload, async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ message: 'No file uploaded' });
