@@ -49,6 +49,24 @@ const normalizeSlug = (value = '') =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
 
+const buildSeoDefaults = ({ name, brand, keyFeatures, category }) => {
+  const titleParts = [];
+  const trimmedName = String(name || '').trim();
+  const trimmedBrand = String(brand || '').trim();
+  const firstFeature = Array.isArray(keyFeatures) ? String(keyFeatures[0] || '').trim() : '';
+
+  if (trimmedBrand) titleParts.push(trimmedBrand);
+  if (trimmedName) titleParts.push(trimmedName);
+  if (!trimmedBrand && firstFeature) titleParts.push(firstFeature);
+
+  return {
+    metaTitle: titleParts.length > 0 ? `${titleParts.join(' ')} | CaseProz Kenya` : 'CaseProz Kenya',
+    metaDescription: trimmedName
+      ? `Buy ${trimmedName} online at CaseProz Kenya. ${trimmedBrand ? `Shop genuine ${trimmedBrand} products. ` : ''}${category ? `Explore our ${String(category).trim()} collection. ` : ''}Fast delivery across Kenya.`
+      : 'Shop quality tech products and accessories at CaseProz Kenya with fast delivery across Kenya.',
+  };
+};
+
 const buildCategorySlugFilter = (targetSlugRaw) => {
   const targetSlug = normalizeSlug(targetSlugRaw);
   if (!targetSlug) return null;
@@ -444,6 +462,8 @@ router.post('/', protect, admin, async (req, res) => {
       variants,
     } = req.body;
 
+    const seoDefaults = buildSeoDefaults({ name, brand, keyFeatures, category });
+
     const payload = applyVariantFallbacks({
       name,
       slug,
@@ -467,8 +487,8 @@ router.post('/', protect, admin, async (req, res) => {
       featureHeadline,
       featureSubtext,
       notes,
-      metaTitle,
-      metaDescription,
+      metaTitle: String(metaTitle || '').trim() || seoDefaults.metaTitle,
+      metaDescription: String(metaDescription || '').trim() || seoDefaults.metaDescription,
       variants,
     });
 
