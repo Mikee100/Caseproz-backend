@@ -10,7 +10,7 @@ const invalidateProductsCache = () => {
 };
 
 const LIST_SELECT_FIELDS =
-  '_id name slug price originalPrice category subCategory images stock onSale isFeatured heroOrder isActive brand categories createdAt keyFeatures variants';
+  '_id name slug price originalPrice category subCategory images stock onSale isFeatured heroOrder isActive brand categories createdAt keyFeatures';
 const DEFAULT_PAGE_SIZE = 12;
 const MAX_PAGE_SIZE = 60;
 
@@ -390,13 +390,19 @@ router.get('/', async (req, res) => {
         : brandFilter;
     }
 
-    const count = await Product.countDocuments(query);
-    const products = await Product.find(query)
-      .select(LIST_SELECT_FIELDS)
-      .sort(sortOption)
-      .limit(pageSize)
-      .skip(pageSize * (page - 1))
-      .lean();
+    const [count, products] = await Promise.all([
+      Product.countDocuments(query),
+      Product.find(query)
+        .select(LIST_SELECT_FIELDS)
+        .sort(sortOption)
+        .limit(pageSize)
+        .skip(pageSize * (page - 1))
+        .lean(),
+    ]);
+
+    if (isActive === true && !keywordRegex) {
+      res.set('Cache-Control', 'public, max-age=30, s-maxage=120, stale-while-revalidate=300');
+    }
 
     res.json({
       products: products.map((p) => serializeProductForClient(p, req)),
