@@ -12,6 +12,21 @@ const transporter = nodemailer.createTransport({
     : undefined,
 });
 
+// Verify SMTP connectivity/auth once at boot so misconfiguration shows up in
+// deploy logs immediately instead of silently failing on the first order.
+transporter.verify((error) => {
+  if (error) {
+    console.error('SMTP transporter verification failed:', {
+      message: error.message,
+      code: error.code,
+      command: error.command,
+      response: error.response,
+    });
+  } else {
+    console.log('SMTP transporter verified: ready to send emails.');
+  }
+});
+
 const sendEmail = async ({ to, subject, text, html }) => {
   if (!to) {
     console.error('sendEmail called without "to" address');
@@ -29,9 +44,19 @@ const sendEmail = async ({ to, subject, text, html }) => {
   };
 
   try {
-    await transporter.sendMail(mailOptions);
+    const info = await transporter.sendMail(mailOptions);
+    console.log('Email sent:', { messageId: info.messageId, to: mailOptions.to, subject });
+    return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error('Error sending email:', error.message || error);
+    console.error('Error sending email:', {
+      message: error.message,
+      code: error.code,
+      command: error.command,
+      response: error.response,
+      to: mailOptions.to,
+      subject,
+    });
+    return { success: false, message: error.message, code: error.code };
   }
 };
 
