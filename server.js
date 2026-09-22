@@ -1,3 +1,8 @@
+const dns = require('dns');
+// Render's network doesn't support outbound IPv6; prefer IPv4 for all
+// DNS lookups (e.g. SMTP) to avoid ENETUNREACH connecting to IPv6-only records.
+dns.setDefaultResultOrder('ipv4first');
+
 const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
