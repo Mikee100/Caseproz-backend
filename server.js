@@ -6,6 +6,7 @@ const helmet = require('helmet');
 const { rateLimit } = require('express-rate-limit');
 const mongoose = require('mongoose');
 const connectDB = require('./config/db');
+const sendEmail = require('./utils/sendEmail');
 
 
 dotenv.config();
@@ -185,6 +186,29 @@ app.get('/healthz', (req, res) => {
     uptimeSeconds: Math.floor(process.uptime()),
     dbConnected: mongoose.connection.readyState === 1,
   });
+});
+
+// Gated diagnostic route to verify SMTP works in prod without placing a real
+// order. Requires DEBUG_EMAIL_TOKEN to be set on Render; 404s otherwise.
+app.get('/api/debug/test-email', async (req, res) => {
+  const expectedToken = process.env.DEBUG_EMAIL_TOKEN;
+  if (!expectedToken || req.query.token !== expectedToken) {
+    return res.status(404).json({ message: 'Not found' });
+  }
+
+  const to = req.query.to || process.env.ADMIN_ORDER_EMAIL || process.env.SMTP_USER;
+  if (!to) {
+    return res.status(400).json({ message: 'No recipient configured or provided (?to=)' });
+  }
+
+  const result = await sendEmail({
+    to,
+    subject: 'CaseProz SMTP test email',
+    text: 'This is a test email to confirm SMTP works in production.',
+    html: '<p>This is a test email to confirm SMTP works in production.</p>',
+  });
+
+  res.status(result.success ? 200 : 502).json(result);
 });
 
 const PORT = process.env.PORT || 7000;
