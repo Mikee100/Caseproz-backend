@@ -1,4 +1,88 @@
 /**
+ * Wraps admin-facing notification content in the shared CaseProz branded shell.
+ * @param {string} eyebrow - Small uppercase label shown under the logo.
+ * @param {string} bodyHtml - Inner HTML for the notification body.
+ * @returns {string} The full HTML document.
+ */
+const wrapAdminNotificationEmail = (eyebrow, bodyHtml) => `
+  <!DOCTYPE html>
+  <html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CaseProz Admin Notification</title>
+  </head>
+  <body style="margin: 0; padding: 0; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #f7fafc; color: #2d3748;">
+    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f7fafc; padding: 20px 0;">
+      <tr>
+        <td align="center">
+          <table width="600" border="0" cellspacing="0" cellpadding="0" style="background-color: #fff; border-radius: 16px; overflow: hidden; box-shadow: 0 6px 24px -2px rgba(0,0,0,0.08), 0 1.5px 4px -1px rgba(0,0,0,0.04);">
+            <tr>
+              <td style="background: linear-gradient(135deg, #e53e3e 0%, #1a202c 100%); padding: 36px 30px 26px 30px; text-align: center;">
+                <h1 style="margin: 0; color: #fff; font-size: 26px; font-weight: 900; letter-spacing: 2px;">CASEPROZ</h1>
+                <div style="margin-top: 10px; height: 2.5px; width: 40px; background: #fff; margin-left: auto; margin-right: auto;"></div>
+                <p style="margin: 14px 0 0; color: #f7fafc; font-size: 13px; text-transform: uppercase; letter-spacing: 1.5px;">${eyebrow}</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 36px 32px 32px 32px;">
+                ${bodyHtml}
+              </td>
+            </tr>
+            <tr>
+              <td style="background-color: #f8fafc; padding: 24px 30px; text-align: center; border-top: 1.5px solid #e2e8f0;">
+                <p style="margin: 0; font-size: 12px; color: #a0aec0;">
+                  &copy; ${new Date().getFullYear()} CASEPROZ KENYA — Internal notification, not sent to customers.
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+  </html>
+`;
+
+/**
+ * Generates the HTML for a low-stock alert email sent to admins.
+ * @param {Object} product - The product that is low on stock.
+ * @returns {string} The HTML content.
+ */
+const generateLowStockAlertEmail = (product) => {
+  const stock = Number(product.stock ?? 0);
+  const threshold = Number(product.lowStockThreshold ?? 0);
+  const isOutOfStock = stock <= 0;
+
+  const bodyHtml = `
+    <div style="display: inline-block; padding: 6px 14px; border-radius: 999px; background: ${isOutOfStock ? '#fff5f5' : '#fffaf0'}; color: ${isOutOfStock ? '#c53030' : '#c05621'}; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 18px;">
+      ${isOutOfStock ? '⛔ Out of Stock' : '⚠️ Low Stock'}
+    </div>
+    <h2 style="margin: 0 0 8px; font-size: 22px; color: #1a202c; font-weight: 800;">${product.name}</h2>
+    <p style="margin: 0 0 26px; line-height: 1.6; color: #4a5568; font-size: 15px;">
+      This product has dropped to or below its configured low-stock threshold and may need restocking soon.
+    </p>
+    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background: #f8fafc; border-radius: 10px; border: 1.5px solid #e2e8f0; margin-bottom: 28px;">
+      <tr>
+        <td style="padding: 18px 20px; width: 50%; border-right: 1.5px solid #e2e8f0;">
+          <div style="font-size: 12px; text-transform: uppercase; color: #718096; letter-spacing: 0.5px; margin-bottom: 6px;">Current Stock</div>
+          <div style="font-size: 28px; font-weight: 900; color: ${isOutOfStock ? '#e53e3e' : '#c05621'};">${stock}</div>
+        </td>
+        <td style="padding: 18px 20px; width: 50%;">
+          <div style="font-size: 12px; text-transform: uppercase; color: #718096; letter-spacing: 0.5px; margin-bottom: 6px;">Threshold</div>
+          <div style="font-size: 28px; font-weight: 900; color: #1a202c;">${threshold}</div>
+        </td>
+      </tr>
+    </table>
+    <div style="text-align: center;">
+      <a href="https://caseproz.co.ke/admin/products" style="display: inline-block; padding: 13px 28px; background: linear-gradient(90deg, #e53e3e 0%, #f56565 100%); color: #fff; text-decoration: none; font-weight: 700; border-radius: 8px; font-size: 15px; letter-spacing: 0.5px;">MANAGE INVENTORY</a>
+    </div>
+  `;
+
+  return wrapAdminNotificationEmail('Inventory Alert', bodyHtml);
+};
+
+/**
  * Generates the HTML for the order confirmation email.
  * @param {Object} order - The order object.
  * @param {Object} user - The user object (optional).
@@ -94,13 +178,6 @@ const generateOrderConfirmationEmail = (order, user, recommendedProducts = []) =
                       <p style="margin: 0 0 22px; line-height: 1.7; color: #4a5568; font-size: 16px;">
                         Hi ${user ? user.name.split(' ')[0] : 'there'}, we've received your order and it's being processed.<br>Your order ID is <strong style="color: #e53e3e;">#${order._id}</strong>.
                       </p>
-                      <div style="background: #e6f7ee; border: 1.5px solid #38a169; border-radius: 10px; padding: 18px 20px; margin: 28px 0 32px 0; color: #22543d; font-weight: 600; font-size: 16px;">
-                        <span style="margin-right: 8px;">💳</span>
-                        <strong>Lipa na M-Pesa Instructions:</strong><br />
-                        To pay for your order, use <strong>Lipa na Mpesa</strong> and enter:<br />
-                        <strong>Account Number:</strong> 40043<br />
-                        <strong>Business Number:</strong> ${user && user.name ? user.name : '(your name as entered in the order)'}
-                      </div>
 
                       <!-- Order Details -->
                       <div style="background: #f8fafc; border-radius: 10px; padding: 22px 20px; margin-bottom: 32px; border: 1.5px solid #e2e8f0;">
@@ -294,4 +371,5 @@ module.exports = {
   generateOrderConfirmationEmail,
   generateVerificationEmail,
   generatePasswordResetEmail,
+  generateLowStockAlertEmail,
 };
