@@ -4,6 +4,7 @@ const cors = require('cors');
 const compression = require('compression');
 const helmet = require('helmet');
 const { rateLimit } = require('express-rate-limit');
+const mongoose = require('mongoose');
 const connectDB = require('./config/db');
 
 
@@ -29,8 +30,9 @@ const path = require('path');
 const app = express();
 app.disable('x-powered-by');
 
-// Trust all proxy layers on Render/Vercel to correctly identify HTTPS
-app.set('trust proxy', true);
+// Trust exactly one hop (the Render/Vercel edge proxy) so req.ip reflects the
+// real client instead of an attacker-supplied X-Forwarded-For header.
+app.set('trust proxy', 1);
 
 app.use(
   helmet({
@@ -173,6 +175,16 @@ app.use('/uploads', express.static(path.join(__dirname, '/uploads')));
 
 app.get('/', (req, res) => {
   res.send('API is running...');
+});
+
+// Lightweight endpoint for uptime pingers (UptimeRobot, cron-job.org, etc.)
+// to keep the Render free-tier instance from spinning down on inactivity.
+app.get('/healthz', (req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    uptimeSeconds: Math.floor(process.uptime()),
+    dbConnected: mongoose.connection.readyState === 1,
+  });
 });
 
 const PORT = process.env.PORT || 7000;

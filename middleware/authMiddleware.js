@@ -23,6 +23,13 @@ const protect = async (req, res, next) => {
 
     next();
   } catch (error) {
+    // Expired/invalid tokens are expected client-side events, not server errors—log tersely.
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ message: 'Not authorized, token expired' });
+    }
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({ message: 'Not authorized, token failed' });
+    }
     console.error(error);
     res.status(401).json({ message: 'Not authorized, token failed' });
   }
