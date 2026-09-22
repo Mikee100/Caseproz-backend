@@ -7,7 +7,7 @@ const DiscountCode = require('../models/DiscountCode');
 const SiteConfig = require('../models/SiteConfig');
 const { protect, admin } = require('../middleware/authMiddleware');
 const sendEmail = require('../utils/sendEmail');
-const { generateOrderConfirmationEmail } = require('../utils/emailTemplates');
+const { generateOrderConfirmationEmail, generateLowStockAlertEmail } = require('../utils/emailTemplates');
 const { logAuditEvent, buildActorFromReq } = require('../utils/auditLogger');
 // const { SHIPPING_ZONES } = require('../utils/shippingZones');
 
@@ -366,7 +366,8 @@ router.post('/', protect, async (req, res) => {
               if (recipients.length > 0) {
                 const subject = `Low Stock Alert: ${updatedProduct.name}`;
                 const text = `Product "${updatedProduct.name}" is low on stock.\nCurrent stock: ${updatedProduct.stock}\nThreshold: ${updatedProduct.lowStockThreshold}`;
-                await sendEmail({ to: recipients, subject, text, html: `<p>${text.replace(/\n/g, '<br>')}</p>` });
+                const html = generateLowStockAlertEmail(updatedProduct);
+                await sendEmail({ to: recipients, subject, text, html });
               }
             } catch (err) {
               console.error('Failed to send low-stock alert:', err);
