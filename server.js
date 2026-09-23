@@ -11,12 +11,13 @@ const helmet = require('helmet');
 const { rateLimit } = require('express-rate-limit');
 const mongoose = require('mongoose');
 const connectDB = require('./config/db');
-const sendEmail = require('./utils/sendEmail');
-
 
 dotenv.config();
 
 console.log('JWT_SECRET loaded:', process.env.JWT_SECRET ? 'YES' : 'NO');
+
+// Required after dotenv.config() so SMTP_HOST etc. are populated before the transporter builds.
+const sendEmail = require('./utils/sendEmail');
 
 connectDB();
 
