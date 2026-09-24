@@ -1,7 +1,11 @@
 const nodemailer = require('nodemailer');
 const dns = require('dns').promises;
+const https = require('https');
 
 const smtpHost = process.env.SMTP_HOST;
+const resendApiKey = process.env.RESEND_API_KEY;
+const fromEmail = process.env.FROM_EMAIL || process.env.SMTP_USER;
+const replyToEmail = process.env.REPLY_TO_EMAIL;
 
 // nodemailer resolves both A and AAAA records and picks a random address,
 // ignoring Node's IPv4-first DNS setting. Render has no outbound IPv6 route,
@@ -10,6 +14,10 @@ const smtpHost = process.env.SMTP_HOST;
 let transporterPromise = null;
 
 const buildTransporter = async () => {
+  if (!smtpHost) {
+    throw new Error('SMTP_HOST is not configured');
+  }
+
   let host = smtpHost;
   try {
     const addresses = await dns.resolve4(smtpHost);
@@ -56,10 +64,63 @@ const getTransporter = () => {
   return transporterPromise;
 };
 
-// Kick off resolution/verification at boot so failures show up in deploy logs.
-getTransporter();
+// Kick off SMTP verification at boot only when SMTP is the active provider.
+if (!resendApiKey && smtpHost) {
+  getTransporter();
+}
 
-const sendEmail = async ({ to, subject, text, html }) => {
+const sendWithResend = ({ to, subject, text, html, replyTo }) => new Promise((resolve, reject) => {
+  const payload = JSON.stringify({
+    from: fromEmail,
+    to,
+    subject,
+    text,
+    html,
+    reply_to: replyTo || replyToEmail || undefined,
+  });
+
+  const req = https.request(
+    {
+      hostname: 'api.resend.com',
+      path: '/emails',
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${resendApiKey}`,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload),
+      },
+    },
+    (res) => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => { body += chunk; });
+      res.on('end', () => {
+        let data = null;
+        try {
+          data = body ? JSON.parse(body) : null;
+        } catch (parseError) {
+          data = { raw: body };
+        }
+
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          resolve(data || {});
+          return;
+        }
+
+        const error = new Error(data && data.message ? data.message : `Resend API returned ${res.statusCode}`);
+        error.statusCode = res.statusCode;
+        error.response = data || body;
+        reject(error);
+      });
+    }
+  );
+
+  req.on('error', reject);
+  req.write(payload);
+  req.end();
+});
+
+const sendEmail = async ({ to, subject, text, html, replyTo }) => {
   if (!to) {
     console.error('sendEmail called without "to" address');
     return;
@@ -68,14 +129,27 @@ const sendEmail = async ({ to, subject, text, html }) => {
   const recipients = Array.isArray(to) ? to : [to];
 
   const mailOptions = {
-    from: process.env.FROM_EMAIL || process.env.SMTP_USER,
+    from: fromEmail,
     to: recipients.filter(Boolean).join(','),
     subject,
     text,
     html,
+    replyTo: replyTo || replyToEmail || undefined,
   };
 
   try {
+    if (resendApiKey) {
+      const info = await sendWithResend({
+        to: recipients.filter(Boolean),
+        subject,
+        text,
+        html,
+        replyTo,
+      });
+      console.log('Email sent via Resend:', { messageId: info.id, to: mailOptions.to, subject });
+      return { success: true, messageId: info.id };
+    }
+
     const transporter = await getTransporter();
     const info = await transporter.sendMail(mailOptions);
     console.log('Email sent:', { messageId: info.messageId, to: mailOptions.to, subject });

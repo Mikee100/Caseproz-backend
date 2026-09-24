@@ -194,7 +194,7 @@ app.get('/healthz', (req, res) => {
   });
 });
 
-// Gated diagnostic route to verify SMTP works in prod without placing a real
+// Gated diagnostic route to verify email works in prod without placing a real
 // order. Requires DEBUG_EMAIL_TOKEN to be set on Render; 404s otherwise.
 app.get('/api/debug/test-email', async (req, res) => {
   const expectedToken = process.env.DEBUG_EMAIL_TOKEN;
@@ -209,9 +209,9 @@ app.get('/api/debug/test-email', async (req, res) => {
 
   const result = await sendEmail({
     to,
-    subject: 'CaseProz SMTP test email',
-    text: 'This is a test email to confirm SMTP works in production.',
-    html: '<p>This is a test email to confirm SMTP works in production.</p>',
+    subject: 'CaseProz email test',
+    text: 'This is a test email to confirm email delivery works in production.',
+    html: '<p>This is a test email to confirm email delivery works in production.</p>',
   });
 
   res.status(result.success ? 200 : 502).json(result);
