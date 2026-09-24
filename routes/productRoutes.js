@@ -942,6 +942,7 @@ router.post('/contact', async (req, res) => {
       subject: safeSubject,
       text: `From: ${name} <${email}>\n\n${message}`,
       html,
+      replyTo: email,
     });
 
     res.json({ message: 'Message sent successfully.' });

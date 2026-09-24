@@ -32,6 +32,7 @@ const discountRoutes = require('./routes/discountRoutes');
 const seoRoutes = require('./routes/seoRoutes');
 const brandRoutes = require('./routes/brandRoutes');
 const categoryRoutes = require('./routes/categoryRoutes');
+const paymentRoutes = require('./routes/paymentRoutes');
 const path = require('path');
 
 const app = express();
@@ -87,7 +88,8 @@ const allowedOrigins = [
   'https://caseproz.vercel.app',
   'https://caseproz.co.ke',
   'https://www.caseproz.co.ke',
-  'http://localhost:3000'
+  'http://localhost:3000',
+  'http://localhost:5173'
 ];
 app.use(
   cors({
@@ -103,6 +105,9 @@ app.use(
     credentials: true,
   })
 );
+// Paystack signs the exact request bytes, so this route must receive a Buffer
+// before the JSON parser consumes the request body.
+app.use('/api/payments/paystack/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(compression());
 
@@ -169,6 +174,7 @@ app.use('/api/products', productRoutes);
 app.use('/api/sections', sectionRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/orders', orderRoutes);
+app.use('/api/payments', paymentRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/site-config', siteConfigRoutes);
@@ -194,7 +200,7 @@ app.get('/healthz', (req, res) => {
   });
 });
 
-// Gated diagnostic route to verify SMTP works in prod without placing a real
+// Gated diagnostic route to verify email works in prod without placing a real
 // order. Requires DEBUG_EMAIL_TOKEN to be set on Render; 404s otherwise.
 app.get('/api/debug/test-email', async (req, res) => {
   const expectedToken = process.env.DEBUG_EMAIL_TOKEN;
@@ -209,9 +215,9 @@ app.get('/api/debug/test-email', async (req, res) => {
 
   const result = await sendEmail({
     to,
-    subject: 'CaseProz SMTP test email',
-    text: 'This is a test email to confirm SMTP works in production.',
-    html: '<p>This is a test email to confirm SMTP works in production.</p>',
+    subject: 'CaseProz email test',
+    text: 'This is a test email to confirm email delivery works in production.',
+    html: '<p>This is a test email to confirm email delivery works in production.</p>',
   });
 
   res.status(result.success ? 200 : 502).json(result);
