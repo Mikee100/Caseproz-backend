@@ -46,6 +46,9 @@ app.use(
   helmet({
     contentSecurityPolicy: false,
     crossOriginEmbedderPolicy: false,
+    // Default 'same-origin' COOP blocks the window.postMessage Google Sign-In
+    // uses to hand off the credential from its popup/FedCM flow.
+    crossOriginOpenerPolicy: false,
   })
 );
 
