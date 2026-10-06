@@ -4,8 +4,10 @@ const analyticsEventSchema = mongoose.Schema(
   {
     eventName: { type: String, required: true },
     page: { type: String, default: 'home' },
+    path: { type: String },
     section: { type: String },
     label: { type: String },
+    visitorId: { type: String },
     sessionId: { type: String },
     metadata: { type: mongoose.Schema.Types.Mixed },
     userAgent: { type: String },
@@ -19,6 +21,8 @@ const analyticsEventSchema = mongoose.Schema(
 
 analyticsEventSchema.index({ eventName: 1, createdAt: -1 });
 analyticsEventSchema.index({ page: 1, section: 1, createdAt: -1 });
+analyticsEventSchema.index({ visitorId: 1, createdAt: -1 });
+analyticsEventSchema.index({ createdAt: 1 });
 
 const AnalyticsEvent = mongoose.model('AnalyticsEvent', analyticsEventSchema);
 
