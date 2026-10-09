@@ -71,16 +71,15 @@ const buildCategorySlugFilter = (targetSlugRaw) => {
   const targetSlug = normalizeSlug(targetSlugRaw);
   if (!targetSlug) return null;
 
-  const spaceLabel = targetSlug.replace(/-/g, ' ');
   const escapedSlug = targetSlug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const escapedSpaceLabel = spaceLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escapedCategoryLabel = targetSlug.split('-').map(escapeRegex).join('[-\\s&]+');
 
   const defaultFilter = {
     $or: [
       { category: { $regex: `^${escapedSlug}$`, $options: 'i' } },
       { subCategory: { $regex: `^${escapedSlug}$`, $options: 'i' } },
-      { category: { $regex: `^${escapedSpaceLabel}$`, $options: 'i' } },
-      { subCategory: { $regex: `^${escapedSpaceLabel}$`, $options: 'i' } },
+      { category: { $regex: `^${escapedCategoryLabel}$`, $options: 'i' } },
+      { subCategory: { $regex: `^${escapedCategoryLabel}$`, $options: 'i' } },
       { category: { $regex: escapedSlug, $options: 'i' } },
       { subCategory: { $regex: escapedSlug, $options: 'i' } },
     ],
