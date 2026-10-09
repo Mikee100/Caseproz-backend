@@ -299,6 +299,7 @@ router.get('/', async (req, res) => {
     const subCategory = req.query.subCategory;
     const categorySlug = req.query.categorySlug;
     const brand = req.query.brand;
+    const collection = req.query.collection;
     const variantGroup = req.query.variantGroup;
     const isFeatured = parseBooleanQuery(req.query.isFeatured);
     const onSale = parseBooleanQuery(req.query.onSale);
@@ -349,6 +350,15 @@ router.get('/', async (req, res) => {
           ? { $and: [baseQuery, slugFilter] }
           : slugFilter;
       }
+    }
+
+    if (collection === 'anker-soundcore') {
+      const collectionFilter = {
+        brand: { $regex: '^\\s*(?:anker|soundcore(?:\\s+by\\s+anker)?)\\s*$', $options: 'i' },
+      };
+      baseQuery = Object.keys(baseQuery).length
+        ? { $and: [baseQuery, collectionFilter] }
+        : collectionFilter;
     }
 
     if (variantGroup) {
